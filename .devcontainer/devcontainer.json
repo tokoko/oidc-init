@@ -1,0 +1,38 @@
+{
+	"name": "Python OIDC CLI",
+	"dockerComposeFile": "compose.yaml",
+	"service": "app",
+	"workspaceFolder": "/workspace",
+
+	"postCreateCommand": "uv sync",
+
+	"forwardPorts": [8080],
+
+	"portsAttributes": {
+		"8080": {
+			"label": "Keycloak",
+			"onAutoForward": "notify"
+		}
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-python.black-formatter",
+				"charliermarsh.ruff"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+				"python.formatting.provider": "black",
+				"python.linting.enabled": true,
+				"python.linting.ruffEnabled": true,
+				"editor.formatOnSave": true,
+				"editor.codeActionsOnSave": {
+					"source.organizeImports": "explicit"
+				}
+			}
+		}
+	}
+}
