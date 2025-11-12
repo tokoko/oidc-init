@@ -1,12 +1,11 @@
-"""Token storage management using OS keyring and metadata file."""
+"""Token storage management using local file system."""
 
 import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-import keyring
-from keyring.backends.fail import Keyring as FailKeyring
 
 
 class StorageError(Exception):
@@ -22,91 +21,90 @@ class TokenNotFoundError(StorageError):
 
 
 # Default token storage directory
-DEFAULT_TOKEN_DIR = Path.home() / ".oidc"
-DEFAULT_TOKEN_FILE = DEFAULT_TOKEN_DIR / "tokens.json"
-
-# Keyring service name
-KEYRING_SERVICE = "oidc"
-
-
-def _setup_keyring() -> None:
-    """Set up keyring backend, falling back to encrypted file if needed."""
-    current_backend = keyring.get_keyring()
-
-    # Check if the current backend is the fail backend (no recommended backend available)
-    if isinstance(current_backend, FailKeyring):
-        try:
-            # Try to use the encrypted file backend from keyrings.alt
-            from keyrings.alt.file import EncryptedKeyring
-
-            # Set keyring file location in .oidc directory
-            keyring_file = DEFAULT_TOKEN_DIR / "keyring.cfg"
-            encrypted_keyring = EncryptedKeyring()
-            encrypted_keyring.file_path = str(keyring_file)
-
-            keyring.set_keyring(encrypted_keyring)
-        except ImportError:
-            # If keyrings.alt is not available, raise an error
-            raise StorageError(
-                "No keyring backend available and keyrings.alt is not installed. "
-                "Install keyrings.alt: pip install keyrings.alt"
-            )
-
-
-# Set up keyring on module import
-_setup_keyring()
+DEFAULT_TOKEN_DIR = Path.home() / ".oidc" / "cache"
+DEFAULT_TOKENS_DIR = DEFAULT_TOKEN_DIR / "tokens"
 
 
 class TokenStorage:
-    """Manage OIDC token storage in OS keyring with metadata."""
+    """Manage OIDC token storage in local file system."""
 
-    def __init__(self, token_file: Optional[Path] = None):
+    def __init__(self, tokens_dir: Optional[Path] = None):
         """Initialize the token storage.
 
         Args:
-            token_file: Path to the tokens.json metadata file (default: ~/.oidc/tokens.json)
+            tokens_dir: Path to the tokens directory (default: ~/.oidc/cache/tokens)
         """
-        self.token_file = token_file or DEFAULT_TOKEN_FILE
+        self.tokens_dir = tokens_dir or DEFAULT_TOKENS_DIR
 
     def _ensure_token_dir(self) -> None:
-        """Ensure the token directory exists."""
-        self.token_file.parent.mkdir(parents=True, exist_ok=True)
+        """Ensure the tokens directory exists with proper permissions."""
+        self.tokens_dir.mkdir(parents=True, exist_ok=True)
+        # Set directory permissions to 700 (owner rwx only)
+        os.chmod(self.tokens_dir, 0o700)
 
-    def _load_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """Load token metadata from the file.
-
-        Returns:
-            Dictionary of storage_key -> metadata
-        """
-        if not self.token_file.exists():
-            return {}
-
-        try:
-            with open(self.token_file, "r") as f:
-                metadata = json.load(f)
-                if not isinstance(metadata, dict):
-                    raise StorageError(
-                        f"Invalid tokens file format: expected dict, got {type(metadata)}"
-                    )
-                return metadata
-        except json.JSONDecodeError as e:
-            raise StorageError(f"Failed to parse tokens file: {e}") from e
-        except IOError as e:
-            raise StorageError(f"Failed to read tokens file: {e}") from e
-
-    def _save_metadata(self, metadata: Dict[str, Dict[str, Any]]) -> None:
-        """Save token metadata to the file.
+    def _get_token_file_path(self, storage_key: str) -> Path:
+        """Get the file path for a storage key.
 
         Args:
-            metadata: Dictionary of storage_key -> metadata
+            storage_key: Storage key
+
+        Returns:
+            Path to the token file
         """
-        self._ensure_token_dir()
+        # Sanitize storage key for use in filename
+        safe_key = re.sub(r'[^\w\-.]', '_', storage_key)
+        return self.tokens_dir / f"{safe_key}.json"
+
+    def _load_token_data(self, storage_key: str) -> Dict[str, Any]:
+        """Load token data from file.
+
+        Args:
+            storage_key: Key to load tokens for
+
+        Returns:
+            Dictionary containing token data
+
+        Raises:
+            TokenNotFoundError: If token file doesn't exist
+            StorageError: If file read fails
+        """
+        token_file = self._get_token_file_path(storage_key)
+
+        if not token_file.exists():
+            raise TokenNotFoundError(
+                f"No tokens found for '{storage_key}'. Run 'oidc init' to authenticate."
+            )
 
         try:
-            with open(self.token_file, "w") as f:
-                json.dump(metadata, f, indent=2)
+            with open(token_file, "r") as f:
+                data = json.load(f)
+                if not isinstance(data, dict):
+                    raise StorageError(
+                        f"Invalid token file format for '{storage_key}': expected dict, got {type(data)}"
+                    )
+                return data
+        except json.JSONDecodeError as e:
+            raise StorageError(f"Failed to parse token file for '{storage_key}': {e}") from e
         except IOError as e:
-            raise StorageError(f"Failed to write tokens file: {e}") from e
+            raise StorageError(f"Failed to read token file for '{storage_key}': {e}") from e
+
+    def _save_token_data(self, storage_key: str, data: Dict[str, Any]) -> None:
+        """Save token data to file.
+
+        Args:
+            storage_key: Key to save tokens under
+            data: Token data dictionary
+        """
+        self._ensure_token_dir()
+        token_file = self._get_token_file_path(storage_key)
+
+        try:
+            with open(token_file, "w") as f:
+                json.dump(data, f, indent=2)
+            # Set file permissions to 600 (owner rw only) for security
+            os.chmod(token_file, 0o600)
+        except IOError as e:
+            raise StorageError(f"Failed to write token file for '{storage_key}': {e}") from e
 
     def generate_storage_key(
         self, endpoint: str, realm: str, client_id: str, profile_name: Optional[str] = None
@@ -129,7 +127,7 @@ class TokenStorage:
             return profile_name
 
         # Sanitize endpoint for use in key
-        # Remove protocol and make filesystem/keyring safe
+        # Remove protocol and make filesystem safe
         sanitized_endpoint = endpoint.replace("http://", "").replace("https://", "")
         sanitized_endpoint = re.sub(r"[:/]", "-", sanitized_endpoint)
 
@@ -143,7 +141,7 @@ class TokenStorage:
         scope: Optional[str] = None,
         expiry_buffer_seconds: int = 300,
     ) -> None:
-        """Save tokens to keyring and metadata.
+        """Save tokens to file system.
 
         Args:
             storage_key: Key to store tokens under
@@ -157,25 +155,6 @@ class TokenStorage:
         if "access_token" not in tokens:
             raise StorageError("tokens dictionary must contain 'access_token'")
 
-        # Store tokens in keyring
-        access_token = tokens["access_token"]
-        refresh_token = tokens.get("refresh_token")
-        id_token = tokens.get("id_token")
-
-        try:
-            keyring.set_password(KEYRING_SERVICE, f"{storage_key}:access_token", access_token)
-
-            if refresh_token:
-                keyring.set_password(
-                    KEYRING_SERVICE, f"{storage_key}:refresh_token", refresh_token
-                )
-
-            if id_token:
-                keyring.set_password(KEYRING_SERVICE, f"{storage_key}:id_token", id_token)
-
-        except Exception as e:
-            raise StorageError(f"Failed to store tokens in keyring: {e}") from e
-
         # Calculate expiry time
         issued_at = datetime.now(timezone.utc)
         expires_in = tokens.get("expires_in", 3600)  # Default 1 hour
@@ -185,20 +164,27 @@ class TokenStorage:
         effective_buffer = min(expiry_buffer_seconds, int(expires_in * 0.8))
         expires_at = issued_at + timedelta(seconds=expires_in - effective_buffer)
 
-        # Store metadata
-        metadata = self._load_metadata()
-        metadata[storage_key] = {
+        # Prepare token data
+        token_data = {
+            "access_token": tokens["access_token"],
             "token_type": tokens.get("token_type", "Bearer"),
             "expires_at": expires_at.isoformat(),
             "issued_at": issued_at.isoformat(),
             "scope": scope or tokens.get("scope"),
-            "has_refresh_token": refresh_token is not None,
-            "has_id_token": id_token is not None,
         }
-        self._save_metadata(metadata)
+
+        # Add optional tokens
+        if "refresh_token" in tokens:
+            token_data["refresh_token"] = tokens["refresh_token"]
+
+        if "id_token" in tokens:
+            token_data["id_token"] = tokens["id_token"]
+
+        # Save to file
+        self._save_token_data(storage_key, token_data)
 
     def get_tokens(self, storage_key: str) -> Dict[str, Any]:
-        """Get tokens from keyring.
+        """Get tokens from file system.
 
         Args:
             storage_key: Key to retrieve tokens from
@@ -210,49 +196,30 @@ class TokenStorage:
             TokenNotFoundError: If tokens don't exist
             StorageError: If retrieval fails
         """
-        metadata = self._load_metadata()
+        token_data = self._load_token_data(storage_key)
 
-        if storage_key not in metadata:
-            raise TokenNotFoundError(
-                f"No tokens found for '{storage_key}'. Run 'oidc init' to authenticate."
+        # Validate that required fields exist
+        if "access_token" not in token_data:
+            raise StorageError(
+                f"Token data corrupted for '{storage_key}': missing access_token. "
+                f"Run 'oidc token delete {storage_key}' and re-authenticate."
             )
 
-        try:
-            # Retrieve tokens from keyring
-            access_token = keyring.get_password(KEYRING_SERVICE, f"{storage_key}:access_token")
+        # Build result with available tokens
+        result = {
+            "access_token": token_data["access_token"],
+            "token_type": token_data.get("token_type", "Bearer"),
+        }
 
-            if not access_token:
-                # Metadata exists but token is missing from keyring
-                raise TokenNotFoundError(
-                    f"Token data corrupted for '{storage_key}'. "
-                    f"Run 'oidc token delete {storage_key}' and re-authenticate."
-                )
+        # Add refresh token if available
+        if "refresh_token" in token_data:
+            result["refresh_token"] = token_data["refresh_token"]
 
-            result = {
-                "access_token": access_token,
-                "token_type": metadata[storage_key]["token_type"],
-            }
+        # Add ID token if available
+        if "id_token" in token_data:
+            result["id_token"] = token_data["id_token"]
 
-            # Add refresh token if available
-            if metadata[storage_key].get("has_refresh_token"):
-                refresh_token = keyring.get_password(
-                    KEYRING_SERVICE, f"{storage_key}:refresh_token"
-                )
-                if refresh_token:
-                    result["refresh_token"] = refresh_token
-
-            # Add ID token if available
-            if metadata[storage_key].get("has_id_token"):
-                id_token = keyring.get_password(KEYRING_SERVICE, f"{storage_key}:id_token")
-                if id_token:
-                    result["id_token"] = id_token
-
-            return result
-
-        except Exception as e:
-            if isinstance(e, TokenNotFoundError):
-                raise
-            raise StorageError(f"Failed to retrieve tokens from keyring: {e}") from e
+        return result
 
     def get_metadata(self, storage_key: str) -> Dict[str, Any]:
         """Get token metadata without retrieving actual tokens.
@@ -266,12 +233,17 @@ class TokenStorage:
         Raises:
             TokenNotFoundError: If metadata doesn't exist
         """
-        metadata = self._load_metadata()
+        token_data = self._load_token_data(storage_key)
 
-        if storage_key not in metadata:
-            raise TokenNotFoundError(f"No tokens found for '{storage_key}'.")
-
-        return metadata[storage_key]
+        # Return metadata (everything except sensitive tokens)
+        return {
+            "token_type": token_data.get("token_type", "Bearer"),
+            "expires_at": token_data.get("expires_at"),
+            "issued_at": token_data.get("issued_at"),
+            "scope": token_data.get("scope"),
+            "has_refresh_token": "refresh_token" in token_data,
+            "has_id_token": "id_token" in token_data,
+        }
 
     def is_expired(self, storage_key: str) -> bool:
         """Check if tokens are expired.
@@ -293,7 +265,7 @@ class TokenStorage:
             raise
 
     def delete_tokens(self, storage_key: str) -> None:
-        """Delete tokens from keyring and metadata.
+        """Delete tokens from file system.
 
         Args:
             storage_key: Key to delete
@@ -301,33 +273,18 @@ class TokenStorage:
         Raises:
             TokenNotFoundError: If tokens don't exist
         """
-        metadata = self._load_metadata()
+        token_file = self._get_token_file_path(storage_key)
 
-        if storage_key not in metadata:
+        if not token_file.exists():
             raise TokenNotFoundError(f"No tokens found for '{storage_key}'.")
 
-        # Delete from keyring
         try:
-            keyring.delete_password(KEYRING_SERVICE, f"{storage_key}:access_token")
-        except keyring.errors.PasswordDeleteError:
-            pass  # Already deleted
-
-        try:
-            keyring.delete_password(KEYRING_SERVICE, f"{storage_key}:refresh_token")
-        except keyring.errors.PasswordDeleteError:
-            pass  # Already deleted
-
-        try:
-            keyring.delete_password(KEYRING_SERVICE, f"{storage_key}:id_token")
-        except keyring.errors.PasswordDeleteError:
-            pass  # Already deleted
-
-        # Delete metadata
-        del metadata[storage_key]
-        self._save_metadata(metadata)
+            token_file.unlink()
+        except IOError as e:
+            raise StorageError(f"Failed to delete token file for '{storage_key}': {e}") from e
 
     def purge_all_tokens(self) -> int:
-        """Delete all tokens from keyring and metadata.
+        """Delete all tokens from file system.
 
         Returns:
             Number of tokens deleted
@@ -337,30 +294,21 @@ class TokenStorage:
             >>> count = storage.purge_all_tokens()
             >>> print(f"Deleted {count} token(s)")
         """
-        metadata = self._load_metadata()
-        storage_keys = list(metadata.keys())
+        if not self.tokens_dir.exists():
+            return 0
 
-        # Delete all tokens from keyring
-        for storage_key in storage_keys:
-            try:
-                keyring.delete_password(KEYRING_SERVICE, f"{storage_key}:access_token")
-            except keyring.errors.PasswordDeleteError:
-                pass
+        count = 0
+        try:
+            for token_file in self.tokens_dir.glob("*.json"):
+                try:
+                    token_file.unlink()
+                    count += 1
+                except IOError:
+                    pass  # Continue deleting other files
+        except IOError:
+            pass
 
-            try:
-                keyring.delete_password(KEYRING_SERVICE, f"{storage_key}:refresh_token")
-            except keyring.errors.PasswordDeleteError:
-                pass
-
-            try:
-                keyring.delete_password(KEYRING_SERVICE, f"{storage_key}:id_token")
-            except keyring.errors.PasswordDeleteError:
-                pass
-
-        # Clear metadata file
-        self._save_metadata({})
-
-        return len(storage_keys)
+        return count
 
     def list_storage_keys(self) -> List[str]:
         """List all storage keys with tokens.
@@ -368,8 +316,18 @@ class TokenStorage:
         Returns:
             List of storage keys
         """
-        metadata = self._load_metadata()
-        return sorted(metadata.keys())
+        if not self.tokens_dir.exists():
+            return []
+
+        storage_keys = []
+        for token_file in self.tokens_dir.glob("*.json"):
+            # Extract storage key from filename (remove .json extension)
+            storage_key = token_file.stem
+            # Reverse the sanitization to get original key if needed
+            # For now, just use the filename as-is
+            storage_keys.append(storage_key)
+
+        return sorted(storage_keys)
 
     def token_exists(self, storage_key: str) -> bool:
         """Check if tokens exist for a storage key.
@@ -380,5 +338,5 @@ class TokenStorage:
         Returns:
             True if tokens exist, False otherwise
         """
-        metadata = self._load_metadata()
-        return storage_key in metadata
+        token_file = self._get_token_file_path(storage_key)
+        return token_file.exists()

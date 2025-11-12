@@ -61,13 +61,19 @@ def cli(ctx: click.Context) -> None:
     "--protocol",
     type=click.Choice(["http", "https"], case_sensitive=False),
     default=None,
-    help="Protocol to use if not specified in endpoint (default: http)",
+    help="Protocol to use if not specified in endpoint (default: https)",
 )
 @click.option(
     "--timeout",
     type=int,
     default=None,
     help="Custom timeout in seconds (default: server's expires_in value)",
+)
+@click.option(
+    "--no-verify",
+    is_flag=True,
+    default=False,
+    help="Disable SSL certificate verification (use with caution)",
 )
 @click.option(
     "--save-profile",
@@ -84,6 +90,7 @@ def init(
     flow: Optional[str],
     protocol: Optional[str],
     timeout: Optional[int],
+    no_verify: bool,
     save_profile: Optional[str],
 ) -> None:
     """Initialize OIDC authentication and obtain tokens.
@@ -148,11 +155,16 @@ def init(
     if protocol is not None:
         config["protocol"] = protocol
 
+    # Handle --no-verify flag
+    if no_verify:
+        config["verify"] = False
+
     # Apply defaults
     config.setdefault("scope", "openid profile email")
     config.setdefault("flow", "device")
-    config.setdefault("protocol", "http")
+    config.setdefault("protocol", "https")
     config.setdefault("client_secret", None)
+    config.setdefault("verify", True)
 
     # Validate required parameters
     required = ["endpoint", "realm", "client_id"]
@@ -173,6 +185,7 @@ def init(
     final_scope = config["scope"]
     final_flow = config["flow"]
     final_protocol = config["protocol"]
+    final_verify = config["verify"]
 
     # Construct the full token endpoint URL
     token_endpoint = _build_token_endpoint(final_endpoint, final_realm, final_protocol)
@@ -190,6 +203,7 @@ def init(
                 client_secret=final_client_secret,
                 scope=final_scope,
                 timeout=timeout,
+                verify=final_verify,
             )
 
             # Display token information
@@ -223,6 +237,7 @@ def init(
                         scope=final_scope,
                         protocol=final_protocol,
                         flow=final_flow,
+                        verify=final_verify,
                         overwrite=False,
                     )
                     click.echo(f"\nProfile '{save_profile}' saved to ~/.oidc/profiles.json")
@@ -316,8 +331,14 @@ def profile() -> None:
 @click.option(
     "--protocol",
     type=click.Choice(["http", "https"], case_sensitive=False),
-    default="http",
-    help="Protocol to use if not specified in endpoint (default: http)",
+    default="https",
+    help="Protocol to use if not specified in endpoint (default: https)",
+)
+@click.option(
+    "--no-verify",
+    is_flag=True,
+    default=False,
+    help="Disable SSL certificate verification (use with caution)",
 )
 @click.option(
     "--overwrite",
@@ -338,6 +359,7 @@ def profile_add(
     scope: str,
     flow: str,
     protocol: str,
+    no_verify: bool,
     overwrite: bool,
     set_default: bool,
 ) -> None:
@@ -370,6 +392,7 @@ def profile_add(
             scope=scope,
             protocol=protocol,
             flow=flow,
+            verify=not no_verify,
             overwrite=overwrite,
             set_as_default=set_default,
         )

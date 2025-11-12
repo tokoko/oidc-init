@@ -29,6 +29,7 @@ def initiate_device_flow(
     client_secret: Optional[str] = None,
     scope: Optional[str] = None,
     timeout: Optional[int] = None,
+    verify: bool = True,
 ) -> Dict[str, Any]:
     """
     Initiate OAuth2 Device Authorization Grant flow and poll until completion.
@@ -47,6 +48,7 @@ def initiate_device_flow(
         client_secret: Optional client secret for confidential clients
         scope: Optional space-separated list of scopes to request
         timeout: Optional custom timeout in seconds (overrides server's expires_in)
+        verify: Whether to verify SSL certificates (default: True)
 
     Returns:
         Dictionary containing:
@@ -71,6 +73,10 @@ def initiate_device_flow(
         ... )
         >>> print(f"Access token: {tokens['access_token']}")
     """
+    # Warn if SSL verification is disabled
+    if not verify:
+        print("WARNING: SSL certificate verification is disabled!")
+
     # Derive device authorization endpoint from token endpoint
     # Standard pattern: /token -> /auth/device
     device_auth_endpoint = token_endpoint.replace("/token", "/auth/device")
@@ -82,7 +88,9 @@ def initiate_device_flow(
 
     print(f"Requesting device code from {device_auth_endpoint}...")
     try:
-        device_response = requests.post(device_auth_endpoint, data=device_auth_data, timeout=30)
+        device_response = requests.post(
+            device_auth_endpoint, data=device_auth_data, timeout=30, verify=verify
+        )
         device_response.raise_for_status()
     except requests.RequestException as e:
         raise DeviceFlowError(f"Failed to request device code: {e}") from e
@@ -140,7 +148,7 @@ def initiate_device_flow(
             token_data["client_secret"] = client_secret
 
         try:
-            token_response = requests.post(token_endpoint, data=token_data, timeout=30)
+            token_response = requests.post(token_endpoint, data=token_data, timeout=30, verify=verify)
         except requests.RequestException:
             # Network error, continue polling
             print("!", end="", flush=True)

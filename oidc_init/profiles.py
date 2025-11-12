@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 
 class ProfileError(Exception):
@@ -85,8 +85,9 @@ class ProfileManager:
         client_id: str,
         client_secret: Optional[str] = None,
         scope: str = "openid profile email",
-        protocol: str = "http",
+        protocol: str = "https",
         flow: str = "device",
+        verify: bool = True,
         overwrite: bool = False,
         set_as_default: bool = False,
     ) -> None:
@@ -101,6 +102,7 @@ class ProfileManager:
             scope: Space-separated list of scopes
             protocol: Protocol (http or https)
             flow: Authentication flow (device, etc.)
+            verify: Whether to verify SSL certificates (default: True)
             overwrite: If True, overwrite existing profile
             set_as_default: If True, set this profile as the default
 
@@ -127,6 +129,7 @@ class ProfileManager:
             "scope": scope,
             "protocol": protocol,
             "flow": flow,
+            "verify": verify,
         }
 
         # Set as default if requested or if this is the first profile

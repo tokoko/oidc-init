@@ -62,16 +62,42 @@ uv run mypy oidc_init
 ## Key Dependencies
 
 - **click**: CLI framework
-- **keyring**: Secure local token storage (uses OS-specific credential stores)
+- **requests**: HTTP library for OIDC/OAuth2 flows
 
 ## Architecture Notes
 
 The tool is designed to:
 1. Authenticate with external OIDC providers (e.g., Keycloak)
-2. Obtain access/refresh tokens via OAuth2/OIDC flows
-3. Store tokens securely in the system keyring
+2. Obtain access/refresh tokens via OAuth2/OIDC flows (currently supports Device Authorization Grant - RFC 8628)
+3. Store tokens securely in local file system (`~/.oidc/cache/tokens/`) with restrictive file permissions (0600)
 4. Provide cached tokens to applications that need them
 5. Handle token refresh automatically when expired
+
+### Protocol and SSL Verification
+
+- **Default protocol**: HTTPS (can be overridden with `--protocol http`)
+- **SSL verification**: Enabled by default for security
+- **Disabling SSL verification**: Use `--no-verify` flag when needed (e.g., self-signed certificates in development)
+  - ⚠️ Use with caution - only for development/testing environments
+  - A warning is displayed when SSL verification is disabled
+
+### Token Storage
+
+Tokens are stored in `~/.oidc/cache/tokens/` with the following structure:
+- Each profile/storage key has its own JSON file: `~/.oidc/cache/tokens/{storage_key}.json`
+- Files contain both tokens and metadata (expiry, scope, etc.)
+- Directory permissions: `0700` (owner read/write/execute only)
+- File permissions: `0600` (owner read/write only)
+- Suitable for containerized and shared environments where OS keyrings are not available
+
+### Profile Configuration
+
+Profiles are stored in `~/.oidc/profiles.json` and include:
+- OIDC provider endpoint, realm, and client credentials
+- Authentication flow settings
+- Protocol preference (HTTP/HTTPS)
+- SSL verification setting (`verify: true/false`)
+- Scope configuration
 
 ## Python Version Support
 
