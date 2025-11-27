@@ -25,11 +25,14 @@ __version__ = "0.1.0"
 
 from .storage import TokenStorage, TokenNotFoundError, StorageError
 from .profiles import ProfileManager, ProfileNotFoundError, ProfileError
+from .auth import run_init, AuthenticationError
 from typing import Dict, List, Optional, Any
 
 
 def get_token(storage_key: Optional[str] = None) -> str:
     """Get an access token from storage.
+
+    If the token is expired, automatically initiates the device flow to obtain a new token.
 
     Args:
         storage_key: Storage key or profile name. If None, uses default profile.
@@ -38,9 +41,10 @@ def get_token(storage_key: Optional[str] = None) -> str:
         The access token string
 
     Raises:
-        TokenNotFoundError: If token doesn't exist or is expired
+        TokenNotFoundError: If token doesn't exist and no profile is configured
         ProfileNotFoundError: If no storage key provided and no default profile set
         StorageError: If retrieval fails
+        AuthenticationError: If re-authentication fails
 
     Example:
         >>> import requests
@@ -67,12 +71,23 @@ def get_token(storage_key: Optional[str] = None) -> str:
                 "Either specify a storage key or set a default profile with 'oidc profile set-default'."
             )
 
-    # Check if expired
-    if token_storage.is_expired(final_key):
-        raise TokenNotFoundError(
-            f"Token for '{final_key}' has expired. "
-            f"Run 'oidc init --profile {final_key}' to re-authenticate."
-        )
+    # Check if token exists and is expired
+    try:
+        if token_storage.is_expired(final_key):
+            print(f"\nToken for '{final_key}' has expired. Initiating re-authentication...\n")
+            # Automatically run init to get new tokens
+            run_init(profile=final_key, silent=False)
+    except TokenNotFoundError:
+        # Token doesn't exist at all - check if profile exists
+        profile_manager = ProfileManager()
+        if profile_manager.profile_exists(final_key):
+            print(f"\nNo token found for '{final_key}'. Initiating authentication...\n")
+            run_init(profile=final_key, silent=False)
+        else:
+            raise TokenNotFoundError(
+                f"No tokens found for '{final_key}' and no profile exists with that name. "
+                f"Run 'oidc init --profile {final_key}' to authenticate."
+            )
 
     # Get tokens and return access token
     tokens = token_storage.get_tokens(final_key)
@@ -81,6 +96,8 @@ def get_token(storage_key: Optional[str] = None) -> str:
 
 def get_tokens(storage_key: Optional[str] = None) -> Dict[str, Any]:
     """Get all tokens (access, refresh, id) from storage.
+
+    If the token is expired, automatically initiates the device flow to obtain a new token.
 
     Args:
         storage_key: Storage key or profile name. If None, uses default profile.
@@ -93,9 +110,10 @@ def get_tokens(storage_key: Optional[str] = None) -> Dict[str, Any]:
         - id_token: ID token (if available)
 
     Raises:
-        TokenNotFoundError: If token doesn't exist or is expired
+        TokenNotFoundError: If token doesn't exist and no profile is configured
         ProfileNotFoundError: If no storage key provided and no default profile set
         StorageError: If retrieval fails
+        AuthenticationError: If re-authentication fails
 
     Example:
         >>> from oidc_init import get_tokens
@@ -119,12 +137,23 @@ def get_tokens(storage_key: Optional[str] = None) -> Dict[str, Any]:
                 "Either specify a storage key or set a default profile with 'oidc profile set-default'."
             )
 
-    # Check if expired
-    if token_storage.is_expired(final_key):
-        raise TokenNotFoundError(
-            f"Token for '{final_key}' has expired. "
-            f"Run 'oidc init --profile {final_key}' to re-authenticate."
-        )
+    # Check if token exists and is expired
+    try:
+        if token_storage.is_expired(final_key):
+            print(f"\nToken for '{final_key}' has expired. Initiating re-authentication...\n")
+            # Automatically run init to get new tokens
+            run_init(profile=final_key, silent=False)
+    except TokenNotFoundError:
+        # Token doesn't exist at all - check if profile exists
+        profile_manager = ProfileManager()
+        if profile_manager.profile_exists(final_key):
+            print(f"\nNo token found for '{final_key}'. Initiating authentication...\n")
+            run_init(profile=final_key, silent=False)
+        else:
+            raise TokenNotFoundError(
+                f"No tokens found for '{final_key}' and no profile exists with that name. "
+                f"Run 'oidc init --profile {final_key}' to authenticate."
+            )
 
     return token_storage.get_tokens(final_key)
 
@@ -214,10 +243,12 @@ __all__ = [
     "list_tokens",
     "is_token_valid",
     "purge_tokens",
+    "run_init",
     "TokenStorage",
     "ProfileManager",
     "TokenNotFoundError",
     "ProfileNotFoundError",
     "StorageError",
     "ProfileError",
+    "AuthenticationError",
 ]

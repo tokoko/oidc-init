@@ -3,7 +3,8 @@
 import sys
 from typing import Optional
 import click
-from .device_flow import initiate_device_flow, DeviceFlowError
+from .auth import run_init, AuthenticationError
+from .device_flow import DeviceFlowError
 from .profiles import ProfileManager, ProfileError, ProfileExistsError, ProfileNotFoundError
 from .storage import TokenStorage, StorageError, TokenNotFoundError
 
@@ -116,176 +117,26 @@ def init(
         # HTTPS endpoint
         oidc init --endpoint provider.com --realm prod --client-id app --protocol https
     """
-    # Load profile if specified, or use default profile
-    profile_manager = ProfileManager()
-    config = {}
-
-    # Determine which profile to use
-    profile_to_use = profile
-    if not profile_to_use:
-        # Check if there's a default profile
-        default_profile = profile_manager.get_default_profile()
-        if default_profile:
-            profile_to_use = default_profile
-            click.echo(f"Using default profile: {default_profile}")
-
-    # Load profile configuration
-    if profile_to_use:
-        try:
-            config = profile_manager.get_profile(profile_to_use)
-            if profile:  # Only show this if user explicitly specified --profile
-                click.echo(f"Using profile: {profile}")
-        except ProfileNotFoundError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
-
-    # Override profile settings with explicit CLI arguments
-    if endpoint is not None:
-        config["endpoint"] = endpoint
-    if realm is not None:
-        config["realm"] = realm
-    if client_id is not None:
-        config["client_id"] = client_id
-    if client_secret is not None:
-        config["client_secret"] = client_secret
-    if scope is not None:
-        config["scope"] = scope
-    if flow is not None:
-        config["flow"] = flow
-    if protocol is not None:
-        config["protocol"] = protocol
-
-    # Handle --no-verify flag
-    if no_verify:
-        config["verify"] = False
-
-    # Apply defaults
-    config.setdefault("scope", "openid profile email")
-    config.setdefault("flow", "device")
-    config.setdefault("protocol", "https")
-    config.setdefault("client_secret", None)
-    config.setdefault("verify", True)
-
-    # Validate required parameters
-    required = ["endpoint", "realm", "client_id"]
-    missing = [param for param in required if param not in config or config[param] is None]
-    if missing:
-        click.echo(
-            f"Error: Missing required parameters: {', '.join(missing)}\n"
-            f"Either specify them explicitly or use --profile with a saved profile.",
-            err=True,
-        )
-        sys.exit(1)
-
-    # Extract final values
-    final_endpoint = config["endpoint"]
-    final_realm = config["realm"]
-    final_client_id = config["client_id"]
-    final_client_secret = config.get("client_secret")
-    final_scope = config["scope"]
-    final_flow = config["flow"]
-    final_protocol = config["protocol"]
-    final_verify = config["verify"]
-
-    # Construct the full token endpoint URL
-    token_endpoint = _build_token_endpoint(final_endpoint, final_realm, final_protocol)
-
-    click.echo(f"Initiating {final_flow} flow authentication...")
-    click.echo(f"Endpoint: {token_endpoint}")
-    click.echo(f"Client ID: {final_client_id}")
-    click.echo(f"Scopes: {final_scope}")
-
     try:
-        if final_flow == "device":
-            tokens = initiate_device_flow(
-                token_endpoint=token_endpoint,
-                client_id=final_client_id,
-                client_secret=final_client_secret,
-                scope=final_scope,
-                timeout=timeout,
-                verify=final_verify,
-            )
-
-            # Display token information
-            click.echo("\n" + "=" * 70)
-            click.echo("TOKENS RECEIVED")
-            click.echo("=" * 70)
-            click.echo(f"Access Token: {tokens['access_token'][:50]}...")
-            click.echo(f"Token Type: {tokens['token_type']}")
-            click.echo(f"Expires In: {tokens['expires_in']} seconds")
-
-            if "refresh_token" in tokens:
-                click.echo(f"Refresh Token: {tokens['refresh_token'][:50]}...")
-
-            if "id_token" in tokens:
-                click.echo(f"ID Token: {tokens['id_token'][:50]}...")
-
-            if "scope" in tokens:
-                click.echo(f"Granted Scopes: {tokens['scope']}")
-
-            click.echo("=" * 70)
-
-            # Save profile if requested
-            if save_profile:
-                try:
-                    profile_manager.add_profile(
-                        name=save_profile,
-                        endpoint=final_endpoint,
-                        realm=final_realm,
-                        client_id=final_client_id,
-                        client_secret=final_client_secret,
-                        scope=final_scope,
-                        protocol=final_protocol,
-                        flow=final_flow,
-                        verify=final_verify,
-                        overwrite=False,
-                    )
-                    click.echo(f"\nProfile '{save_profile}' saved to ~/.oidc/profiles.json")
-                except ProfileExistsError:
-                    click.echo(
-                        f"\nWarning: Profile '{save_profile}' already exists. "
-                        f"Use 'oidc profile delete {save_profile}' first to replace it.",
-                        err=True,
-                    )
-
-            # Store tokens
-            token_storage = TokenStorage()
-
-            # Determine storage key (use profile name if available, or auto-generate)
-            storage_key = token_storage.generate_storage_key(
-                endpoint=final_endpoint,
-                realm=final_realm,
-                client_id=final_client_id,
-                profile_name=profile_to_use or save_profile,
-            )
-
-            try:
-                token_storage.save_tokens(
-                    storage_key=storage_key,
-                    tokens=tokens,
-                    scope=final_scope,
-                )
-                click.echo("\nTokens stored securely.")
-                click.echo(f"Storage key: {storage_key}")
-
-                # Show helpful message about auto-generated keys
-                if not profile_to_use and not save_profile:
-                    click.echo(
-                        "\nNote: Tokens stored with auto-generated key. "
-                        "Use 'oidc token list' to view all stored tokens."
-                    )
-            except StorageError as e:
-                click.echo(f"\nWarning: Failed to store tokens: {e}", err=True)
-
-        else:
-            click.echo(f"Error: Flow '{final_flow}' is not yet implemented.", err=True)
-            sys.exit(1)
-
-    except DeviceFlowError as e:
-        click.echo(f"\nAuthentication failed: {e}", err=True)
+        run_init(
+            profile=profile,
+            endpoint=endpoint,
+            realm=realm,
+            client_id=client_id,
+            client_secret=client_secret,
+            scope=scope,
+            flow=flow,
+            protocol=protocol,
+            verify=not no_verify,
+            timeout=timeout,
+            save_profile=save_profile,
+            silent=False,
+        )
+    except (AuthenticationError, DeviceFlowError, ProfileNotFoundError, StorageError) as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
-        click.echo(f"\nUnexpected error: {e}", err=True)
+        click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
 
 
@@ -450,7 +301,9 @@ def profile_show(name: str) -> None:
         click.echo(f"Endpoint:      {profile_data['endpoint']}")
         click.echo(f"Realm:         {profile_data['realm']}")
         click.echo(f"Client ID:     {profile_data['client_id']}")
-        click.echo(f"Client Secret: {'(set)' if profile_data.get('client_secret') else '(not set)'}")
+        click.echo(
+            f"Client Secret: {'(set)' if profile_data.get('client_secret') else '(not set)'}"
+        )
         click.echo(f"Scope:         {profile_data['scope']}")
         click.echo(f"Protocol:      {profile_data['protocol']}")
         click.echo(f"Flow:          {profile_data['flow']}")
@@ -603,9 +456,7 @@ def token_show(storage_key: str) -> None:
         click.echo("=" * 70)
 
         if expired:
-            click.echo(
-                "\nWarning: Token has expired. Run 'oidc init' to re-authenticate."
-            )
+            click.echo("\nWarning: Token has expired. Run 'oidc init' to re-authenticate.")
     except TokenNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -755,28 +606,6 @@ def token_purge(yes: bool) -> None:
     except StorageError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-
-
-def _build_token_endpoint(endpoint: str, realm: str, protocol: str) -> str:
-    """Build the OIDC token endpoint URL from components.
-
-    Args:
-        endpoint: Host and optional port (e.g., 'keycloak:8080' or 'https://provider.com')
-        realm: Realm/tenant name
-        protocol: Protocol to use if not in endpoint ('http' or 'https')
-
-    Returns:
-        Full token endpoint URL
-    """
-    # Check if endpoint already has a protocol
-    if endpoint.startswith("http://") or endpoint.startswith("https://"):
-        base_url = endpoint.rstrip("/")
-    else:
-        base_url = f"{protocol}://{endpoint}"
-
-    # Construct Keycloak-style OIDC endpoint
-    # TODO: Support other providers (detect provider type or make configurable)
-    return f"{base_url}/realms/{realm}/protocol/openid-connect/token"
 
 
 def main() -> None:
