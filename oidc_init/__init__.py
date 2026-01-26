@@ -210,15 +210,27 @@ def get_token_path(storage_key: Optional[str] = None) -> str:
             )
 
     # Check if token exists and is expired - refresh if needed
+    needs_reauth = False
     try:
         if token_storage.is_expired(final_key):
             print(f"\nToken for '{final_key}' has expired. Initiating re-authentication...\n")
-            run_init(profile=final_key, silent=False)
+            needs_reauth = True
+        else:
+            # Token exists and is valid, but check if .token file exists (migration case)
+            token_file_path = token_storage.get_token_file_path(final_key)
+            if not token_file_path.exists():
+                print(
+                    f"\nToken file missing for '{final_key}' (migration needed). "
+                    f"Initiating re-authentication...\n"
+                )
+                needs_reauth = True
     except TokenNotFoundError:
-        # Token doesn't exist at all - check if profile exists
+        needs_reauth = True
+
+    if needs_reauth:
+        # Check if profile exists before attempting re-auth
         profile_manager = ProfileManager()
         if profile_manager.profile_exists(final_key):
-            print(f"\nNo token found for '{final_key}'. Initiating authentication...\n")
             run_init(profile=final_key, silent=False)
         else:
             raise TokenNotFoundError(
