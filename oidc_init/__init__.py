@@ -15,6 +15,11 @@ Example usage:
     access_token = tokens["access_token"]
     refresh_token = tokens["refresh_token"]
 
+    # Get path to token file (for non-Python apps)
+    from oidc_init import get_token_path
+    path = get_token_path("my-keycloak")
+    # Pass path to external application that needs the token
+
     # Search for available tokens
     from oidc_init import list_tokens
     available = list_tokens()
@@ -158,6 +163,73 @@ def get_tokens(storage_key: Optional[str] = None) -> Dict[str, Any]:
     return token_storage.get_tokens(final_key)
 
 
+def get_token_path(storage_key: Optional[str] = None) -> str:
+    """Get the path to a file containing only the access token.
+
+    This is useful for non-Python applications that need to read the token
+    from a file. The file contains only the raw access token string
+    (no JSON wrapper, no newline).
+
+    If the token is expired, automatically initiates the device flow to obtain
+    a new token before returning the path.
+
+    Args:
+        storage_key: Storage key or profile name. If None, uses default profile.
+
+    Returns:
+        Path to the token file as a string
+
+    Raises:
+        TokenNotFoundError: If token doesn't exist and no profile is configured
+        ProfileNotFoundError: If no storage key provided and no default profile set
+        StorageError: If retrieval fails
+        AuthenticationError: If re-authentication fails
+
+    Example:
+        >>> from oidc_init import get_token_path
+        >>> path = get_token_path("my-keycloak")
+        >>> print(path)  # ~/.oidc/cache/tokens/my-keycloak.token
+
+        # Use in shell scripts or other applications
+        >>> import subprocess
+        >>> subprocess.run(["my-app", "--token-file", path])
+    """
+    token_storage = TokenStorage()
+
+    # Determine storage key
+    final_key = storage_key
+    if not final_key:
+        profile_manager = ProfileManager()
+        default_profile = profile_manager.get_default_profile()
+        if default_profile:
+            final_key = default_profile
+        else:
+            raise ProfileNotFoundError(
+                "No storage key provided and no default profile set. "
+                "Either specify a storage key or set a default profile with 'oidc profile set-default'."
+            )
+
+    # Check if token exists and is expired - refresh if needed
+    try:
+        if token_storage.is_expired(final_key):
+            print(f"\nToken for '{final_key}' has expired. Initiating re-authentication...\n")
+            run_init(profile=final_key, silent=False)
+    except TokenNotFoundError:
+        # Token doesn't exist at all - check if profile exists
+        profile_manager = ProfileManager()
+        if profile_manager.profile_exists(final_key):
+            print(f"\nNo token found for '{final_key}'. Initiating authentication...\n")
+            run_init(profile=final_key, silent=False)
+        else:
+            raise TokenNotFoundError(
+                f"No tokens found for '{final_key}' and no profile exists with that name. "
+                f"Run 'oidc init --profile {final_key}' to authenticate."
+            )
+
+    # Return path to the raw token file
+    return str(token_storage.get_token_file_path(final_key))
+
+
 def list_tokens(include_expired: bool = False) -> List[str]:
     """List all available token storage keys.
 
@@ -239,6 +311,7 @@ def purge_tokens() -> int:
 __all__ = [
     "__version__",
     "get_token",
+    "get_token_path",
     "get_tokens",
     "list_tokens",
     "is_token_valid",

@@ -42,18 +42,42 @@ class TokenStorage:
         # Set directory permissions to 700 (owner rwx only)
         os.chmod(self.tokens_dir, 0o700)
 
-    def _get_token_file_path(self, storage_key: str) -> Path:
-        """Get the file path for a storage key.
+    def _sanitize_storage_key(self, storage_key: str) -> str:
+        """Sanitize storage key for use in filename.
 
         Args:
             storage_key: Storage key
 
         Returns:
-            Path to the token file
+            Sanitized key safe for filesystem
         """
-        # Sanitize storage key for use in filename
-        safe_key = re.sub(r'[^\w\-.]', '_', storage_key)
+        return re.sub(r'[^\w\-.]', '_', storage_key)
+
+    def _get_token_file_path(self, storage_key: str) -> Path:
+        """Get the JSON file path for a storage key.
+
+        Args:
+            storage_key: Storage key
+
+        Returns:
+            Path to the token JSON file
+        """
+        safe_key = self._sanitize_storage_key(storage_key)
         return self.tokens_dir / f"{safe_key}.json"
+
+    def _get_raw_token_file_path(self, storage_key: str) -> Path:
+        """Get the raw token file path for a storage key.
+
+        This file contains only the access token string (no JSON, no newline).
+
+        Args:
+            storage_key: Storage key
+
+        Returns:
+            Path to the raw token file
+        """
+        safe_key = self._sanitize_storage_key(storage_key)
+        return self.tokens_dir / f"{safe_key}.token"
 
     def _load_token_data(self, storage_key: str) -> Dict[str, Any]:
         """Load token data from file.
@@ -91,18 +115,28 @@ class TokenStorage:
     def _save_token_data(self, storage_key: str, data: Dict[str, Any]) -> None:
         """Save token data to file.
 
+        Saves both the JSON file (full token data) and a raw token file
+        (access token only) for use by non-Python applications.
+
         Args:
             storage_key: Key to save tokens under
             data: Token data dictionary
         """
         self._ensure_token_dir()
         token_file = self._get_token_file_path(storage_key)
+        raw_token_file = self._get_raw_token_file_path(storage_key)
 
         try:
+            # Save JSON file with full token data
             with open(token_file, "w") as f:
                 json.dump(data, f, indent=2)
-            # Set file permissions to 600 (owner rw only) for security
             os.chmod(token_file, 0o600)
+
+            # Save raw token file with access token only (no newline)
+            if "access_token" in data:
+                with open(raw_token_file, "w") as f:
+                    f.write(data["access_token"])
+                os.chmod(raw_token_file, 0o600)
         except IOError as e:
             raise StorageError(f"Failed to write token file for '{storage_key}': {e}") from e
 
@@ -264,8 +298,32 @@ class TokenStorage:
         except TokenNotFoundError:
             raise
 
+    def get_token_file_path(self, storage_key: str) -> Path:
+        """Get the path to the raw token file.
+
+        This file contains only the access token string (no JSON wrapper, no newline),
+        suitable for use by non-Python applications that need to read the token directly.
+
+        Note: This method does not check if the token exists or is valid.
+        Use token_exists() or is_expired() for validation.
+
+        Args:
+            storage_key: Storage key
+
+        Returns:
+            Path to the raw token file (.token)
+
+        Example:
+            >>> storage = TokenStorage()
+            >>> path = storage.get_token_file_path("my-profile")
+            >>> print(path)  # ~/.oidc/cache/tokens/my-profile.token
+        """
+        return self._get_raw_token_file_path(storage_key)
+
     def delete_tokens(self, storage_key: str) -> None:
         """Delete tokens from file system.
+
+        Deletes both the JSON file and the raw token file.
 
         Args:
             storage_key: Key to delete
@@ -274,20 +332,26 @@ class TokenStorage:
             TokenNotFoundError: If tokens don't exist
         """
         token_file = self._get_token_file_path(storage_key)
+        raw_token_file = self._get_raw_token_file_path(storage_key)
 
         if not token_file.exists():
             raise TokenNotFoundError(f"No tokens found for '{storage_key}'.")
 
         try:
             token_file.unlink()
+            # Also delete raw token file if it exists
+            if raw_token_file.exists():
+                raw_token_file.unlink()
         except IOError as e:
             raise StorageError(f"Failed to delete token file for '{storage_key}': {e}") from e
 
     def purge_all_tokens(self) -> int:
         """Delete all tokens from file system.
 
+        Deletes both JSON files and raw token files.
+
         Returns:
-            Number of tokens deleted
+            Number of token sets deleted (counts JSON files)
 
         Example:
             >>> storage = TokenStorage()
@@ -299,10 +363,18 @@ class TokenStorage:
 
         count = 0
         try:
+            # Delete JSON files and count them
             for token_file in self.tokens_dir.glob("*.json"):
                 try:
                     token_file.unlink()
                     count += 1
+                except IOError:
+                    pass  # Continue deleting other files
+
+            # Also delete raw token files
+            for raw_token_file in self.tokens_dir.glob("*.token"):
+                try:
+                    raw_token_file.unlink()
                 except IOError:
                     pass  # Continue deleting other files
         except IOError:

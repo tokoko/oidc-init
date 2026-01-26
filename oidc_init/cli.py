@@ -537,6 +537,71 @@ def token_get(storage_key: Optional[str], access_token_only: bool) -> None:
         sys.exit(1)
 
 
+@token.command("path")
+@click.argument("storage_key", required=False)
+def token_path(storage_key: Optional[str]) -> None:
+    """Get the path to a file containing only the access token.
+
+    The token file contains only the raw access token string (no JSON, no newline).
+    This is useful for non-Python applications that need to read the token directly.
+
+    If no storage key is provided, uses the default profile.
+
+    Examples:
+
+        # Get token file path from default profile
+        oidc token path
+
+        # Get token file path from specific storage key
+        oidc token path my-keycloak
+
+        # Use in shell scripts
+        curl -H "Authorization: Bearer $(cat $(oidc token path))" https://api.example.com
+    """
+    token_storage = TokenStorage()
+
+    # Determine storage key
+    final_storage_key = storage_key
+    if not final_storage_key:
+        profile_manager = ProfileManager()
+        default_profile = profile_manager.get_default_profile()
+        if default_profile:
+            final_storage_key = default_profile
+        else:
+            click.echo(
+                "Error: No storage key provided and no default profile set.\n"
+                "Either specify a storage key or set a default profile.",
+                err=True,
+            )
+            sys.exit(1)
+
+    try:
+        # Check if token exists
+        if not token_storage.token_exists(final_storage_key):
+            click.echo(
+                f"Error: No tokens found for '{final_storage_key}'. "
+                f"Run 'oidc init' to authenticate.",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Check if expired
+        if token_storage.is_expired(final_storage_key):
+            click.echo(
+                f"Warning: Token for '{final_storage_key}' has expired.\n"
+                f"Run 'oidc init' to re-authenticate.",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Output the path
+        token_file_path = token_storage.get_token_file_path(final_storage_key)
+        click.echo(str(token_file_path))
+    except StorageError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
 @token.command("delete")
 @click.argument("storage_key")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
