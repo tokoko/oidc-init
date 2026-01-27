@@ -1,8 +1,14 @@
 """Command-line interface for oidc."""
 
 import sys
+from importlib.metadata import version, PackageNotFoundError
 from typing import Optional
 import click
+
+try:
+    __version__ = version("oidc-init")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 from .auth import run_init, AuthenticationError
 from .device_flow import DeviceFlowError
 from .profiles import ProfileManager, ProfileError, ProfileExistsError, ProfileNotFoundError
@@ -11,7 +17,7 @@ from .storage import TokenStorage, StorageError, TokenNotFoundError
 
 @click.group(invoke_without_command=True)
 @click.pass_context
-@click.version_option(version="0.1.0", prog_name="oidc")
+@click.version_option(version=__version__, prog_name="oidc")
 def cli(ctx: click.Context) -> None:
     """OIDC token initialization tool.
 
