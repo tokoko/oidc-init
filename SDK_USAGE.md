@@ -1,12 +1,21 @@
 # OIDC-Init Python SDK
 
-The `oidc-init` package provides both a CLI tool and a Python SDK for managing OIDC tokens.
+The `oidc-init` Python SDK provides programmatic access to cached OIDC tokens managed by the `oidc` CLI tool. The SDK reads token files directly from disk and invokes the Go CLI binary via subprocess when re-authentication is needed.
 
 ## Installation
 
+The SDK and CLI are installed separately:
+
 ```bash
+# Install the Go CLI binary (provides the `oidc` command)
+# See releases at https://github.com/tokoko/oidc-init/releases
+# Or build from source: go build -o oidc .
+
+# Install the Python SDK
 pip install oidc-init
 ```
+
+The SDK requires the `oidc` binary to be available in `$PATH` for auto-reauthentication. You can also set the `OIDC_CLI_PATH` environment variable to point to the binary.
 
 ## Quick Start
 
@@ -45,7 +54,7 @@ response = requests.get(
 
 ### `get_token(storage_key=None)`
 
-Get an access token from storage.
+Get an access token from storage. Automatically triggers re-authentication via the CLI if the token is expired or missing.
 
 **Parameters:**
 - `storage_key` (str, optional): Profile name or storage key. If not provided, uses the default profile.
@@ -54,8 +63,10 @@ Get an access token from storage.
 - `str`: The access token
 
 **Raises:**
-- `TokenNotFoundError`: If token doesn't exist or is expired
+- `TokenNotFoundError`: If token doesn't exist after re-auth attempt
 - `ProfileNotFoundError`: If no storage key provided and no default profile set
+- `AuthenticationError`: If re-authentication via CLI fails
+- `CLINotFoundError`: If the `oidc` binary cannot be found
 
 **Example:**
 ```python
@@ -70,7 +81,7 @@ token = get_token("my-keycloak")
 
 ### `get_tokens(storage_key=None)`
 
-Get all tokens (access, refresh, id) from storage.
+Get all tokens (access, refresh, id) from storage. Automatically triggers re-authentication if expired.
 
 **Parameters:**
 - `storage_key` (str, optional): Profile name or storage key
@@ -90,6 +101,24 @@ tokens = get_tokens("my-keycloak")
 print(tokens['access_token'])
 print(tokens['refresh_token'])
 print(tokens['id_token'])
+```
+
+### `get_token_path(storage_key=None)`
+
+Get the file path to the raw `.token` file containing just the access token string. Useful for passing to tools that read tokens from files.
+
+**Parameters:**
+- `storage_key` (str, optional): Profile name or storage key
+
+**Returns:**
+- `str`: Absolute path to the `.token` file
+
+**Example:**
+```python
+from oidc_init import get_token_path
+
+path = get_token_path("my-keycloak")
+# Use with shell commands: curl -H "Authorization: Bearer $(cat <path>)"
 ```
 
 ### `list_tokens(include_expired=False)`
@@ -133,6 +162,20 @@ else:
     print("Token expired, please re-authenticate")
 ```
 
+### `purge_tokens()`
+
+Delete all stored tokens.
+
+**Returns:**
+- `int`: Number of token sets deleted
+
+### `read_token_data(storage_key)`
+
+Low-level function to read and parse the raw JSON token file.
+
+**Returns:**
+- `dict`: Full token data including metadata (expires_at, issued_at, scope, etc.)
+
 ## Common Use Cases
 
 ### Use Case 1: Simple API Client
@@ -168,27 +211,7 @@ dev_token = get_token("keycloak-dev")
 prod_token = get_token("keycloak-prod")
 ```
 
-### Use Case 3: Automatic Token Refresh
-
-```python
-from oidc_init import get_token, is_token_valid, TokenNotFoundError
-
-def get_valid_token(profile):
-    """Get token, prompting user if expired."""
-    if is_token_valid(profile):
-        return get_token(profile)
-    else:
-        print(f"Token expired. Run: oidc init --profile {profile}")
-        raise TokenNotFoundError("Token expired")
-
-# Use it
-try:
-    token = get_valid_token("my-keycloak")
-except TokenNotFoundError:
-    print("Please authenticate first")
-```
-
-### Use Case 4: Database Password
+### Use Case 3: Database Password
 
 ```python
 from oidc_init import get_token
@@ -206,15 +229,16 @@ conn = psycopg2.connect(
 )
 ```
 
-### Use Case 5: Iterate All Available Tokens
+### Use Case 4: Custom CLI Binary Location
 
 ```python
-from oidc_init import list_tokens, get_token
+import os
 
-# Process all valid tokens
-for profile in list_tokens():
-    token = get_token(profile)
-    print(f"{profile}: {token[:20]}...")
+# Set before importing oidc_init, or in your environment
+os.environ["OIDC_CLI_PATH"] = "/usr/local/bin/oidc"
+
+from oidc_init import get_token
+token = get_token("my-profile")
 ```
 
 ## Error Handling
@@ -224,14 +248,25 @@ from oidc_init import (
     get_token,
     TokenNotFoundError,
     ProfileNotFoundError,
-    StorageError
+    StorageError,
+    AuthenticationError,
+    CLINotFoundError,
 )
 
 try:
     token = get_token("my-profile")
 
+except CLINotFoundError as e:
+    # oidc binary not found in PATH or OIDC_CLI_PATH
+    print(f"CLI not found: {e}")
+    print("Install the oidc binary or set OIDC_CLI_PATH")
+
+except AuthenticationError as e:
+    # Re-authentication via CLI failed
+    print(f"Auth failed: {e}")
+
 except TokenNotFoundError as e:
-    # Token doesn't exist or is expired
+    # Token doesn't exist
     print(f"Token issue: {e}")
     print("Run 'oidc init --profile my-profile' to authenticate")
 
@@ -241,29 +276,8 @@ except ProfileNotFoundError as e:
     print("Either specify a profile or set a default")
 
 except StorageError as e:
-    # Storage/keyring issue
+    # File I/O or parse error
     print(f"Storage error: {e}")
-```
-
-## Advanced: Direct Storage Access
-
-For advanced use cases, you can use the storage classes directly:
-
-```python
-from oidc_init import TokenStorage, ProfileManager
-
-# Direct storage access
-storage = TokenStorage()
-profiles = ProfileManager()
-
-# Get metadata without retrieving token
-metadata = storage.get_metadata("my-keycloak")
-print(f"Token expires at: {metadata['expires_at']}")
-
-# Get profile configuration
-config = profiles.get_profile("my-keycloak")
-print(f"Endpoint: {config['endpoint']}")
-print(f"Realm: {config['realm']}")
 ```
 
 ## Complete Example

@@ -5,11 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "oidc-init"
 version = "0.1.0"
-description = "A CLI tool for obtaining and caching OIDC tokens from external providers"
-readme = "README.md"
+description = "Python SDK for oidc-init -- read cached OIDC tokens and trigger re-auth via CLI"
 requires-python = ">=3.8"
 license = {text = "MIT"}
-keywords = ["oidc", "oauth2", "authentication", "cli", "token", "cache"]
+keywords = ["oidc", "oauth2", "authentication", "token", "cache"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,10 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-dependencies = [
-    "requests>=2.31.0",
-    "click>=8.1.0",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
@@ -35,9 +31,6 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.5.0",
 ]
-
-[project.scripts]
-oidc = "oidc_init.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -60,6 +53,7 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

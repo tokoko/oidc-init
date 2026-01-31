@@ -1,7 +1,11 @@
 FROM python:3.10
 
-# Install git and other utilities
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+# Install git, curl, jq and other utilities
+RUN apt-get update && apt-get install -y git curl jq && rm -rf /var/lib/apt/lists/*
+
+# Install Go
+RUN curl -fsSL https://go.dev/dl/go1.23.6.linux-amd64.tar.gz | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh

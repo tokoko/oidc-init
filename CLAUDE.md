@@ -4,101 +4,144 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`oidc-init` is a CLI tool for obtaining and caching OIDC tokens from external providers, similar to how `kinit` is used in Kerberos authentication. The tool allows users to authenticate once and maintain cached tokens for subsequent use.
+`oidc-init` is a CLI tool for obtaining and caching OIDC tokens from external providers, similar to how `kinit` is used in Kerberos authentication. The core logic and CLI are written in **Go**. A thin **Python SDK** wrapper is provided for programmatic access from Python applications.
 
 ## Project Structure
 
-- **Package name**: `oidc-init` (with hyphen for distribution)
-- **Module name**: `oidc_init` (with underscore for Python imports)
-- **CLI entry point**: `oidc` command → `oidc_init.cli:main`
+```
+oidc-init/
+├── main.go                 # Go entry point
+├── go.mod / go.sum         # Go module (github.com/tokoko/oidc-init)
+├── cmd/                    # CLI commands (Cobra)
+│   ├── root.go
+│   ├── init.go
+│   ├── profile.go
+│   └── token.go
+├── internal/               # Go internal packages
+│   ├── auth/               # Authentication orchestration
+│   ├── deviceflow/         # RFC 8628 device authorization grant
+│   ├── profiles/           # Profile management (~/.oidc/profiles.json)
+│   └── storage/            # Token storage (~/.oidc/cache/tokens/)
+├── sdks/python/            # Python SDK (thin wrapper)
+│   ├── pyproject.toml      # Zero external dependencies
+│   ├── oidc_init/
+│   │   ├── __init__.py     # Public API: get_token, get_tokens, etc.
+│   │   ├── reader.py       # Reads token JSON files from disk
+│   │   └── cli.py          # Subprocess wrapper for `oidc` binary
+│   └── tests/
+├── compose.yaml            # Keycloak for integration tests
+├── scripts/                # Setup scripts
+├── Makefile                # Build/test/lint targets
+└── .devcontainer/          # Dev environment (Go + Python + Keycloak)
+```
+
+- **CLI entry point**: `oidc` command (built from Go)
+- **Python SDK**: `pip install oidc-init` (reads token files + subprocess to CLI for re-auth)
+- **Go module**: `github.com/tokoko/oidc-init`
 
 ## Development Environment
 
 The project uses a devcontainer with:
-- Python development environment
+- Go and Python development environment
 - **Keycloak** running on port 8080 for local OIDC testing
   - Admin Console: http://localhost:8080
   - Default credentials: admin/admin
-- All dependencies managed via `uv`
 
 ## Development Commands
 
-### Setup
+### Go (core CLI)
 ```bash
-# Install dependencies using uv
-uv sync
+# Build the CLI binary
+CGO_ENABLED=0 go build -o oidc .
 
-# Add a new dependency
-uv add <package>
+# Run Go unit tests
+CGO_ENABLED=0 go test ./...
 
-# Add a dev dependency
-uv add --dev <package>
+# Run integration tests (requires Keycloak)
+CGO_ENABLED=0 go test -v -tags integration ./...
+
+# Format
+gofmt -w .
+
+# Lint
+go vet ./...
 ```
 
-### Testing
+### Python SDK
 ```bash
-# Run all tests with coverage
-uv run pytest
+# Install dev dependencies
+cd sdks/python && uv sync
 
-# Run specific test file
-uv run pytest tests/test_<module>.py
+# Run tests
+cd sdks/python && uv run pytest
 
-# Run specific test function
-uv run pytest tests/test_<module>.py::test_<function>
+# Format
+cd sdks/python && uv run black .
+
+# Lint
+cd sdks/python && uv run ruff check .
+
+# Type check
+cd sdks/python && uv run mypy oidc_init
 ```
 
-### Code Quality
+### Makefile shortcuts
 ```bash
-# Format code with Black (line length: 100)
-uv run black .
-
-# Lint with Ruff
-uv run ruff check .
-
-# Type check with mypy
-uv run mypy oidc_init
+make build           # Build Go binary
+make test            # Run Go + Python tests
+make test-go         # Go tests only
+make test-python     # Python tests only
+make test-integration # Integration tests (Keycloak required)
+make lint            # Lint Go + Python
+make fmt             # Format Go + Python
+make setup           # Start Keycloak + create test realm
+make teardown        # Stop Keycloak
 ```
 
 ## Key Dependencies
 
-- **click**: CLI framework
-- **requests**: HTTP library for OIDC/OAuth2 flows
+### Go
+- **cobra**: CLI framework
+- No external HTTP libraries (stdlib `net/http`)
+
+### Python SDK
+- **Zero external dependencies** (stdlib only: json, subprocess, pathlib, datetime)
+- Dev: pytest, black, ruff, mypy
 
 ## Architecture Notes
 
-The tool is designed to:
-1. Authenticate with external OIDC providers (e.g., Keycloak)
-2. Obtain access/refresh tokens via OAuth2/OIDC flows (currently supports Device Authorization Grant - RFC 8628)
-3. Store tokens securely in local file system (`~/.oidc/cache/tokens/`) with restrictive file permissions (0600)
-4. Provide cached tokens to applications that need them
-5. Handle token refresh automatically when expired
+### Go CLI
+1. Authenticates with OIDC providers (e.g., Keycloak) via Device Authorization Grant (RFC 8628)
+2. Stores tokens in `~/.oidc/cache/tokens/` with restrictive file permissions
+3. Manages profiles in `~/.oidc/profiles.json`
+4. Provides `oidc init`, `oidc profile`, and `oidc token` command groups
+
+### Python SDK
+The Python SDK is a thin wrapper that:
+1. Reads token JSON files directly from `~/.oidc/cache/tokens/` (no subprocess for reads)
+2. Invokes `oidc init --profile <name>` via `subprocess.run()` when re-auth is needed
+3. Locates the `oidc` binary via `OIDC_CLI_PATH` env var or `shutil.which("oidc")`
+4. Exposes: `get_token()`, `get_tokens()`, `get_token_path()`, `list_tokens()`, `is_token_valid()`, `purge_tokens()`
 
 ### Protocol and SSL Verification
 
 - **Default protocol**: HTTPS (can be overridden with `--protocol http`)
-- **SSL verification**: Enabled by default for security
-- **Disabling SSL verification**: Use `--no-verify` flag when needed (e.g., self-signed certificates in development)
-  - ⚠️ Use with caution - only for development/testing environments
-  - A warning is displayed when SSL verification is disabled
+- **SSL verification**: Enabled by default
+- **Disabling SSL verification**: Use `--no-verify` flag (development only)
 
 ### Token Storage
 
-Tokens are stored in `~/.oidc/cache/tokens/` with the following structure:
-- Each profile/storage key has its own JSON file: `~/.oidc/cache/tokens/{storage_key}.json`
-- Files contain both tokens and metadata (expiry, scope, etc.)
-- Directory permissions: `0700` (owner read/write/execute only)
-- File permissions: `0600` (owner read/write only)
-- Suitable for containerized and shared environments where OS keyrings are not available
+Tokens are stored in `~/.oidc/cache/tokens/`:
+- JSON file: `{storage_key}.json` — full token data + metadata
+- Raw token file: `{storage_key}.token` — access token string only
+- Directory permissions: `0700`, File permissions: `0600`
 
 ### Profile Configuration
 
 Profiles are stored in `~/.oidc/profiles.json` and include:
 - OIDC provider endpoint, realm, and client credentials
-- Authentication flow settings
-- Protocol preference (HTTP/HTTPS)
-- SSL verification setting (`verify: true/false`)
-- Scope configuration
+- Authentication flow, protocol, SSL verification, scope settings
 
 ## Python Version Support
 
-Requires Python 3.8 or higher. Type hints should be compatible with Python 3.8 (`disallow_untyped_defs` is enabled in mypy).
+The Python SDK requires Python 3.8 or higher. Type hints should be compatible with Python 3.8 (`disallow_untyped_defs` is enabled in mypy).

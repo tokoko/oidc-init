@@ -1,3 +1,15 @@
+# Go binary
+/oidc
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.dylib
+*.test
+*.out
+vendor/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
