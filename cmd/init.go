@@ -24,6 +24,7 @@ var initCmd = &cobra.Command{
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		noVerify, _ := cmd.Flags().GetBool("no-verify")
 		saveProfile, _ := cmd.Flags().GetString("save-profile")
+		username, _ := cmd.Flags().GetString("username")
 
 		// Don't pass default flag values as explicit overrides when a profile
 		// is in play — only pass values the user actually set on the command line.
@@ -49,6 +50,7 @@ var initCmd = &cobra.Command{
 			NoVerify:     noVerify,
 			Timeout:      timeout,
 			SaveProfile:  saveProfile,
+			Username:     username,
 		}
 
 		_, err := auth.RunInit(context.Background(), opts)
@@ -71,6 +73,7 @@ func init() {
 	initCmd.Flags().Int("timeout", 0, "Custom timeout in seconds")
 	initCmd.Flags().Bool("no-verify", false, "Disable SSL certificate verification")
 	initCmd.Flags().String("save-profile", "", "Save configuration as a profile")
+	initCmd.Flags().String("username", "", "Username for password flow")
 
 	rootCmd.AddCommand(initCmd)
 }

@@ -27,6 +27,7 @@ type Profile struct {
 	Protocol     string `json:"protocol"`
 	Flow         string `json:"flow"`
 	Verify       bool   `json:"verify"`
+	Username     string `json:"username,omitempty"`
 }
 
 // Manager provides CRUD operations on the profiles file.
