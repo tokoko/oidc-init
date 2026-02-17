@@ -1,0 +1,50 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -o oidc .
+
+      - name: Test
+        run: CGO_ENABLED=0 go test ./...
+
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: cd sdks/python && uv sync
+
+      - name: Lint
+        run: cd sdks/python && uv run ruff check .
+
+      - name: Type check
+        run: cd sdks/python && uv run ty check oidc_init
+
+      - name: Test
+        run: cd sdks/python && uv run pytest

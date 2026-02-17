@@ -1,10 +1,10 @@
 {
-	"name": "Python OIDC CLI",
+	"name": "OIDC Init",
 	"dockerComposeFile": "compose.yaml",
 	"service": "app",
 	"workspaceFolder": "/workspace",
 
-	"postCreateCommand": "uv sync",
+	"postCreateCommand": "go mod download && cd sdks/python && uv sync",
 
 	"forwardPorts": [8080],
 
@@ -18,20 +18,17 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
+				"golang.go",
 				"ms-python.python",
 				"ms-python.vscode-pylance",
 				"ms-python.black-formatter",
 				"charliermarsh.ruff"
 			],
 			"settings": {
-				"python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+				"go.gopath": "/root/go",
+				"python.defaultInterpreterPath": "/workspace/sdks/python/.venv/bin/python",
 				"python.formatting.provider": "black",
-				"python.linting.enabled": true,
-				"python.linting.ruffEnabled": true,
-				"editor.formatOnSave": true,
-				"editor.codeActionsOnSave": {
-					"source.organizeImports": "explicit"
-				}
+				"editor.formatOnSave": true
 			}
 		}
 	}
