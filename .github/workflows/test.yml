@@ -44,7 +44,7 @@ jobs:
         run: cd sdks/python && uv run ruff check .
 
       - name: Type check
-        run: cd sdks/python && uv run mypy oidc_init
+        run: cd sdks/python && uv run ty check oidc_init
 
       - name: Test
         run: cd sdks/python && uv run pytest

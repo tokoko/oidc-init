@@ -1,8 +1,6 @@
 """Tests for oidc_init.reader — direct file-based token reading."""
 
 import json
-import os
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict
 

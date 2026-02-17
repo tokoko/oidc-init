@@ -1,7 +1,6 @@
 """Tests for oidc_init public API (__init__.py)."""
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import patch

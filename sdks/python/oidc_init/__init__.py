@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 from .cli import AuthenticationError, CLINotFoundError
 from .cli import run_init as _run_init
 from .reader import StorageError, TokenNotFoundError
-from .reader import delete_token_files as _delete_token_files
 from .reader import is_expired as _is_expired
 from .reader import list_keys as _list_keys
 from .reader import purge_all as _purge_all

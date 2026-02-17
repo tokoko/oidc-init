@@ -1,7 +1,6 @@
 """Direct file-based reader for ~/.oidc/cache/tokens/ JSON files."""
 
 import json
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path

@@ -32,7 +32,7 @@ lint-go:
 
 lint-python:
 	cd sdks/python && uv run ruff check .
-	cd sdks/python && uv run mypy oidc_init
+	cd sdks/python && uv run ty check oidc_init
 
 # ── Format ─────────────────────────────────────────────────
 fmt: fmt-go fmt-python
