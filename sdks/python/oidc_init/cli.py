@@ -27,9 +27,7 @@ def _find_oidc_binary() -> str:
     if env_path:
         if os.path.isfile(env_path) and os.access(env_path, os.X_OK):
             return env_path
-        raise CLINotFoundError(
-            f"OIDC_CLI_PATH={env_path} does not point to an executable file"
-        )
+        raise CLINotFoundError(f"OIDC_CLI_PATH={env_path} does not point to an executable file")
 
     which_path = shutil.which("oidc")
     if which_path:

@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-
 TOKEN_DIR = Path.home() / ".oidc" / "cache" / "tokens"
 
 
