@@ -18,7 +18,7 @@ const (
 	keycloakURL  = "http://localhost:8080"
 	testRealm    = "test-realm"
 	testClientID = "test-client"
-	testUsername  = "testuser"
+	testUsername = "testuser"
 	testPassword = "testpass"
 )
 

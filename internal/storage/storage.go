@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	tokenDir    = ".oidc/cache/tokens"
-	dirPerms    = 0700
-	filePerms   = 0600
+	tokenDir     = ".oidc/cache/tokens"
+	dirPerms     = 0700
+	filePerms    = 0600
 	expiryBuffer = 300 // seconds
 )
 

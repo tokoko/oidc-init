@@ -101,9 +101,7 @@ class TestGetTokens:
 
 
 class TestGetTokenPath:
-    def test_returns_path(
-        self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]
-    ) -> None:
+    def test_returns_path(self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]) -> None:
         _write_token(temp_tokens_dir, "test", sample_token_json)
         with patch("oidc_init.reader.TOKEN_DIR", temp_tokens_dir):
             path = get_token_path("test")
@@ -112,7 +110,10 @@ class TestGetTokenPath:
 
 class TestListTokens:
     def test_lists_valid_only(
-        self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any], expired_token_json: Dict[str, Any]
+        self,
+        temp_tokens_dir: Path,
+        sample_token_json: Dict[str, Any],
+        expired_token_json: Dict[str, Any],
     ) -> None:
         _write_token(temp_tokens_dir, "valid", sample_token_json)
         _write_token(temp_tokens_dir, "expired", expired_token_json)
@@ -122,7 +123,10 @@ class TestListTokens:
         assert "expired" not in keys
 
     def test_lists_all_with_include_expired(
-        self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any], expired_token_json: Dict[str, Any]
+        self,
+        temp_tokens_dir: Path,
+        sample_token_json: Dict[str, Any],
+        expired_token_json: Dict[str, Any],
     ) -> None:
         _write_token(temp_tokens_dir, "valid", sample_token_json)
         _write_token(temp_tokens_dir, "expired", expired_token_json)
@@ -133,16 +137,12 @@ class TestListTokens:
 
 
 class TestIsTokenValid:
-    def test_valid(
-        self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]
-    ) -> None:
+    def test_valid(self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]) -> None:
         _write_token(temp_tokens_dir, "test", sample_token_json)
         with patch("oidc_init.reader.TOKEN_DIR", temp_tokens_dir):
             assert is_token_valid("test") is True
 
-    def test_expired(
-        self, temp_tokens_dir: Path, expired_token_json: Dict[str, Any]
-    ) -> None:
+    def test_expired(self, temp_tokens_dir: Path, expired_token_json: Dict[str, Any]) -> None:
         _write_token(temp_tokens_dir, "test", expired_token_json)
         with patch("oidc_init.reader.TOKEN_DIR", temp_tokens_dir):
             assert is_token_valid("test") is False
@@ -153,9 +153,7 @@ class TestIsTokenValid:
 
 
 class TestPurgeTokens:
-    def test_purges(
-        self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]
-    ) -> None:
+    def test_purges(self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]) -> None:
         _write_token(temp_tokens_dir, "a", sample_token_json)
         _write_token(temp_tokens_dir, "b", sample_token_json)
         with patch("oidc_init.reader.TOKEN_DIR", temp_tokens_dir):

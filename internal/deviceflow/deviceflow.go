@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -124,7 +127,38 @@ func RequestDeviceCode(ctx context.Context, cfg *Config) (*DeviceAuthResponse, e
 	return &dar, nil
 }
 
+// isRunningInContainer checks whether the process is running inside a container.
+func isRunningInContainer() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	if _, err := os.Stat("/run/.containerenv"); err == nil {
+		return true
+	}
+	for _, env := range []string{"container", "REMOTE_CONTAINERS", "CODESPACES"} {
+		if os.Getenv(env) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// openBrowser attempts to open a URL in the default browser.
+func openBrowser(url string) error {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("cmd", "/c", "start", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
 // PrintUserInstructions outputs the verification URI and user code.
+// When not running inside a container, it also opens the URL in the default browser.
 func PrintUserInstructions(dar *DeviceAuthResponse) {
 	fmt.Println()
 	fmt.Println("DEVICE AUTHORIZATION REQUIRED")
@@ -135,6 +169,17 @@ func PrintUserInstructions(dar *DeviceAuthResponse) {
 		fmt.Printf("Open:  %s\n", dar.VerificationURI)
 		fmt.Printf("Enter: %s\n\n", dar.UserCode)
 	}
+
+	if !isRunningInContainer() {
+		browseURL := dar.VerificationURIComplete
+		if browseURL == "" {
+			browseURL = dar.VerificationURI
+		}
+		if err := openBrowser(browseURL); err == nil {
+			fmt.Println("(Browser opened automatically)")
+		}
+	}
+
 	fmt.Print("Waiting for authorization")
 }
 

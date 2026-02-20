@@ -20,9 +20,7 @@ from helpers import write_token as _write_token
 
 
 class TestReadTokenData:
-    def test_reads_valid_token(
-        self, write_token: tuple, sample_token_json: Dict[str, Any]
-    ) -> None:
+    def test_reads_valid_token(self, write_token: tuple, sample_token_json: Dict[str, Any]) -> None:
         key, tokens_dir = write_token
         data = read_token_data(key, tokens_dir)
         assert data["access_token"] == sample_token_json["access_token"]
@@ -50,9 +48,7 @@ class TestIsExpired:
         key, tokens_dir = write_token
         assert not is_expired(key, tokens_dir)
 
-    def test_expired_token(
-        self, temp_tokens_dir: Path, expired_token_json: Dict[str, Any]
-    ) -> None:
+    def test_expired_token(self, temp_tokens_dir: Path, expired_token_json: Dict[str, Any]) -> None:
         _write_token(temp_tokens_dir, "expired", expired_token_json)
         assert is_expired("expired", temp_tokens_dir)
 
@@ -95,9 +91,7 @@ class TestListKeys:
     def test_nonexistent_dir(self, tmp_path: Path) -> None:
         assert list_keys(tmp_path / "does-not-exist") == []
 
-    def test_multiple_keys(
-        self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]
-    ) -> None:
+    def test_multiple_keys(self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]) -> None:
         _write_token(temp_tokens_dir, "alpha", sample_token_json)
         _write_token(temp_tokens_dir, "beta", sample_token_json)
         keys = list_keys(temp_tokens_dir)
@@ -117,9 +111,7 @@ class TestDeleteTokenFiles:
 
 
 class TestPurgeAll:
-    def test_purges_all(
-        self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]
-    ) -> None:
+    def test_purges_all(self, temp_tokens_dir: Path, sample_token_json: Dict[str, Any]) -> None:
         _write_token(temp_tokens_dir, "a", sample_token_json)
         _write_token(temp_tokens_dir, "b", sample_token_json)
         count = purge_all(temp_tokens_dir)
