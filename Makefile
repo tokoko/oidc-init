@@ -1,5 +1,5 @@
-.PHONY: build test test-go test-python test-integration test-all \
-        lint lint-go lint-python fmt fmt-go fmt-python \
+.PHONY: build test test-go test-python test-java test-integration test-all \
+        lint lint-go lint-python lint-java fmt fmt-go fmt-python \
         setup teardown clean
 
 BINARY_NAME ?= oidc
@@ -11,7 +11,7 @@ build:
 	go build -o $(BINARY_NAME) .
 
 # ── Test ───────────────────────────────────────────────────
-test: test-go test-python
+test: test-go test-python test-java
 
 test-go:
 	go test ./...
@@ -19,13 +19,16 @@ test-go:
 test-python:
 	cd sdks/python && uv run pytest
 
+test-java:
+	cd sdks/java && ./gradlew test
+
 test-integration:
 	go test -v -tags integration ./...
 
 test-all: test test-integration
 
 # ── Lint ───────────────────────────────────────────────────
-lint: lint-go lint-python
+lint: lint-go lint-python lint-java
 
 lint-go:
 	go vet ./...
@@ -33,6 +36,9 @@ lint-go:
 lint-python:
 	cd sdks/python && uv run ruff check .
 	cd sdks/python && uv run ty check oidc_init
+
+lint-java:
+	cd sdks/java && ./gradlew compileJava compileTestJava
 
 # ── Format ─────────────────────────────────────────────────
 fmt: fmt-go fmt-python

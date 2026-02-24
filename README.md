@@ -1,6 +1,6 @@
 # oidc-init
 
-A CLI tool for obtaining and caching OIDC tokens from external providers, similar to how `kinit` works for Kerberos. A thin Python SDK is also provided for programmatic access.
+A CLI tool for obtaining and caching OIDC tokens from external providers, similar to how `kinit` works for Kerberos. Thin [Python](sdks/python/) and [Java](sdks/java/) SDKs are provided for programmatic access.
 
 ## Installation
 
@@ -10,13 +10,10 @@ A CLI tool for obtaining and caching OIDC tokens from external providers, simila
 go install github.com/tokoko/oidc-init@latest
 ```
 
-### Python SDK
+### SDKs
 
-```bash
-pip install oidc-init
-```
-
-The Python SDK requires the `oidc` binary on your `PATH` (or set `OIDC_CLI_PATH`).
+- [Python SDK](sdks/python/) — `pip install oidc-init`
+- [Java SDK](sdks/java/) — `com.github.tokoko:oidc-init`
 
 ## Quick Start
 
@@ -103,32 +100,12 @@ oidc token delete prod
 oidc token purge
 ```
 
-## Python SDK Usage
+## SDKs
 
-```python
-from oidc_init import get_token, get_tokens, get_token_path, is_token_valid, list_tokens
+See each SDK's README for full API details:
 
-# Get an access token (re-authenticates automatically if expired)
-token = get_token("prod")
-headers = {"Authorization": f"Bearer {token}"}
-
-# Use the default profile
-token = get_token()
-
-# Get all token fields (access_token, refresh_token, id_token, etc.)
-tokens = get_tokens("prod")
-
-# Get path to the raw token file
-path = get_token_path("prod")
-
-# Check if a token is still valid without triggering re-auth
-if is_token_valid("prod"):
-    print("Token is valid")
-
-# List stored tokens
-for key in list_tokens():
-    print(key)
-```
+- [Python SDK](sdks/python/README.md)
+- [Java SDK](sdks/java/README.md)
 
 ## Token Storage
 
