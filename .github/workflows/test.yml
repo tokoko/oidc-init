@@ -48,3 +48,19 @@ jobs:
 
       - name: Test
         run: cd sdks/python && uv run pytest
+
+  test-java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test
+        run: cd sdks/java && ./gradlew test

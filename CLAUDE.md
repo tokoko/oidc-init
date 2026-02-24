@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`oidc-init` is a CLI tool for obtaining and caching OIDC tokens from external providers, similar to how `kinit` is used in Kerberos authentication. The core logic and CLI are written in **Go**. A thin **Python SDK** wrapper is provided for programmatic access from Python applications.
+`oidc-init` is a CLI tool for obtaining and caching OIDC tokens from external providers, similar to how `kinit` is used in Kerberos authentication. The core logic and CLI are written in **Go**. Thin **Python** and **Java** SDK wrappers are provided for programmatic access.
 
 ## Project Structure
 
@@ -29,6 +29,12 @@ oidc-init/
 │   │   ├── reader.py       # Reads token JSON files from disk
 │   │   └── cli.py          # Subprocess wrapper for `oidc` binary
 │   └── tests/
+├── sdks/java/              # Java SDK (thin wrapper)
+│   ├── build.gradle.kts    # Zero runtime dependencies, Java 17
+│   └── src/main/java/com/github/tokoko/oidc/
+│       ├── OidcClient.java # Public API: getToken, getTokens, etc.
+│       ├── TokenReader.java# Reads token JSON files from disk
+│       └── CliRunner.java  # ProcessBuilder wrapper for `oidc` binary
 ├── compose.yaml            # Keycloak for integration tests
 ├── scripts/                # Setup scripts
 ├── Makefile                # Build/test/lint targets
@@ -37,6 +43,7 @@ oidc-init/
 
 - **CLI entry point**: `oidc` command (built from Go)
 - **Python SDK**: `pip install oidc-init` (reads token files + subprocess to CLI for re-auth)
+- **Java SDK**: `com.github.tokoko:oidc-init` (reads token files + ProcessBuilder to CLI for re-auth)
 - **Go module**: `github.com/tokoko/oidc-init`
 
 ## Development Environment
@@ -85,14 +92,24 @@ cd sdks/python && uv run ruff check .
 cd sdks/python && uv run mypy oidc_init
 ```
 
+### Java SDK
+```bash
+# Run tests
+cd sdks/java && ./gradlew test
+
+# Compile (lint check via -Xlint)
+cd sdks/java && ./gradlew compileJava
+```
+
 ### Makefile shortcuts
 ```bash
 make build           # Build Go binary
-make test            # Run Go + Python tests
+make test            # Run Go + Python + Java tests
 make test-go         # Go tests only
 make test-python     # Python tests only
+make test-java       # Java tests only
 make test-integration # Integration tests (Keycloak required)
-make lint            # Lint Go + Python
+make lint            # Lint Go + Python + Java
 make fmt             # Format Go + Python
 make setup           # Start Keycloak + create test realm
 make teardown        # Stop Keycloak
@@ -108,6 +125,11 @@ make teardown        # Stop Keycloak
 - **Zero external dependencies** (stdlib only: json, subprocess, pathlib, datetime)
 - Dev: pytest, black, ruff, mypy
 
+### Java SDK
+- **Zero runtime dependencies** (stdlib only: java.nio, java.time, java.io)
+- Dev: JUnit 5 (test-only dependency)
+- Requires Java 17+
+
 ## Architecture Notes
 
 ### Go CLI
@@ -122,6 +144,14 @@ The Python SDK is a thin wrapper that:
 2. Invokes `oidc init --profile <name>` via `subprocess.run()` when re-auth is needed
 3. Locates the `oidc` binary via `OIDC_CLI_PATH` env var or `shutil.which("oidc")`
 4. Exposes: `get_token()`, `get_tokens()`, `get_token_path()`, `list_tokens()`, `is_token_valid()`, `purge_tokens()`
+
+### Java SDK
+The Java SDK is a thin wrapper that:
+1. Reads token JSON files directly from `~/.oidc/cache/tokens/` (no subprocess for reads)
+2. Invokes `oidc init --profile <name>` via `ProcessBuilder` when re-auth is needed
+3. Locates the `oidc` binary via `OIDC_CLI_PATH` env var or PATH search
+4. Exposes: `getToken()`, `getTokens()`, `getTokenPath()`, `listTokens()`, `isTokenValid()`, `purgeTokens()` via `OidcClient` class
+5. Package: `com.github.tokoko.oidc`
 
 ### Protocol and SSL Verification
 
@@ -145,3 +175,7 @@ Profiles are stored in `~/.oidc/profiles.json` and include:
 ## Python Version Support
 
 The Python SDK requires Python 3.8 or higher. Type hints should be compatible with Python 3.8 (`disallow_untyped_defs` is enabled in mypy).
+
+## Java Version Support
+
+The Java SDK requires Java 17 or higher. Uses Java 17 features (records, text blocks, enhanced switch).

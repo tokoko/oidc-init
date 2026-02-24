@@ -1,6 +1,13 @@
 # Go binary
 /oidc
 
+# Gradle
+.gradle/
+sdks/java/build/
+
+# Pixi
+.pixi/
+
 # Go build artifacts
 *.exe
 *.exe~
@@ -217,3 +224,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
