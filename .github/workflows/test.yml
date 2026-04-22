@@ -7,60 +7,41 @@ on:
     branches: [main]
 
 jobs:
-  test-go:
+  linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: prefix-dev/setup-pixi@v0.8.10
         with:
-          go-version-file: go.mod
+          cache: true
 
-      - name: Vet
-        run: go vet ./...
+      - name: Lint (Go + Python + Java)
+        run: pixi run lint
 
-      - name: Build
-        run: CGO_ENABLED=0 go build -o oidc .
+      - name: Test (Go + Python + Java)
+        run: pixi run test
 
-      - name: Test
-        run: CGO_ENABLED=0 go test ./...
+      - name: Build CLI
+        run: pixi run build
 
-  test-python:
-    runs-on: ubuntu-latest
+      - name: Build GUI (Fyne / CGO)
+        run: pixi run build-gui
+
+  windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: prefix-dev/setup-pixi@v0.8.10
         with:
-          python-version: "3.12"
+          cache: true
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - name: Test Go
+        run: pixi run test-go
 
-      - name: Install dependencies
-        run: cd sdks/python && uv sync
+      - name: Build CLI
+        run: pixi run build
 
-      - name: Lint
-        run: cd sdks/python && uv run ruff check .
-
-      - name: Type check
-        run: cd sdks/python && uv run ty check oidc_init
-
-      - name: Test
-        run: cd sdks/python && uv run pytest
-
-  test-java:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Test
-        run: cd sdks/java && ./gradlew test
+      - name: Build GUI (Fyne / CGO)
+        run: pixi run build-gui

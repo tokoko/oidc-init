@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ func setupTestHome(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp) // os.UserHomeDir reads this on Windows
 	return tmp
 }
 
@@ -121,6 +123,9 @@ func TestSaveTokens_RawTokenContent(t *testing.T) {
 }
 
 func TestSaveTokens_FilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits don't apply on Windows")
+	}
 	home := setupTestHome(t)
 	if err := SaveTokens("testkey", sampleTokenResponse()); err != nil {
 		t.Fatalf("SaveTokens: %v", err)
@@ -139,6 +144,9 @@ func TestSaveTokens_FilePermissions(t *testing.T) {
 }
 
 func TestSaveTokens_DirectoryPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits don't apply on Windows")
+	}
 	home := setupTestHome(t)
 	if err := SaveTokens("testkey", sampleTokenResponse()); err != nil {
 		t.Fatalf("SaveTokens: %v", err)

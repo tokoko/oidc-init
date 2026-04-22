@@ -3,6 +3,7 @@ package profiles
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -10,6 +11,7 @@ func setupTestHome(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp) // os.UserHomeDir reads this on Windows
 	return tmp
 }
 
@@ -288,6 +290,9 @@ func TestGetDefault_NoneSet(t *testing.T) {
 }
 
 func TestFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits don't apply on Windows")
+	}
 	home := setupTestHome(t)
 	mgr, _ := NewManager()
 	_ = mgr.Add("test", sampleProfile(), false)
