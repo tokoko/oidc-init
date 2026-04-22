@@ -2,11 +2,75 @@
 authors = ["tokoko <togurgenidze@gmail.com>"]
 channels = ["conda-forge"]
 name = "oidc-init"
-platforms = ["linux-64"]
+platforms = ["linux-64", "win-64"]
 version = "0.1.0"
 
 [tasks]
+# ── Build ──────────────────────────────────────────────────
+build = { cmd = "go build -ldflags=\"-s -w\" -o oidc .", env = { CGO_ENABLED = "0" } }
+build-gui = { cmd = "bash -c 'PREFIX=$CONDA_PREFIX; CC=gcc PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig CGO_CFLAGS=-I$PREFIX/include CGO_LDFLAGS=-L$PREFIX/lib CGO_ENABLED=1 go build -tags gui -ldflags=\"-s -w\" -o oidc .'" }
+build-windows = { cmd = "bash -c 'GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -tags gui -ldflags=\"-H windowsgui -s -w\" -o oidc.exe .'" }
+
+# ── Run ────────────────────────────────────────────────────
+gui = { cmd = "./oidc gui", depends-on = ["build-gui"] }
+run-windows = { cmd = "bash -c 'WINE_HOME=\"$HOME/.wine/drive_c/users/$USER\"; if [ -d \"$WINE_HOME\" ] && [ ! -L \"$WINE_HOME/.oidc\" ]; then rm -rf \"$WINE_HOME/.oidc\"; ln -s \"$HOME/.oidc\" \"$WINE_HOME/.oidc\"; fi; wine ./oidc.exe'", depends-on = ["build-windows"] }
+
+# ── Test ───────────────────────────────────────────────────
+test = { depends-on = ["test-go", "test-python", "test-java"] }
+test-go = "go test ./..."
+test-python = { cmd = "uv run pytest", cwd = "sdks/python" }
+test-java = { cmd = "./gradlew test", cwd = "sdks/java" }
+test-integration = "go test -v -tags integration ./..."
+
+# ── Lint ───────────────────────────────────────────────────
+lint = { depends-on = ["lint-go", "lint-python", "lint-java"] }
+lint-go = "go vet ./..."
+lint-python = { cmd = "bash -c 'uv run ruff check . && uv run ty check oidc_init'", cwd = "sdks/python" }
+lint-java = { cmd = "./gradlew compileJava compileTestJava", cwd = "sdks/java" }
+
+# ── Format ─────────────────────────────────────────────────
+fmt = { depends-on = ["fmt-go", "fmt-python"] }
+fmt-go = "gofmt -w ."
+fmt-python = { cmd = "uv run black .", cwd = "sdks/python" }
+
+# ── Keycloak ───────────────────────────────────────────────
+setup = "bash -c 'docker compose up -d && until curl -sf http://localhost:8080/realms/master > /dev/null 2>&1; do sleep 1; done && ./scripts/setup_keycloak.sh'"
+teardown = "docker compose down"
+
+# ── Clean ──────────────────────────────────────────────────
+clean = "rm -f oidc oidc.exe"
+
+# Windows-native overrides: no env-var dance needed (the host has its own
+# C compiler), just `go build` directly. The same target name keeps CI/Make
+# usage uniform across platforms.
+[target.win-64.tasks]
+build-gui = "go build -tags gui -ldflags=\"-s -w -H windowsgui\" -o oidc.exe ."
+build = { cmd = "go build -ldflags=\"-s -w\" -o oidc.exe .", env = { CGO_ENABLED = "0" } }
+clean = { cmd = "powershell -c \"Remove-Item -Force -ErrorAction SilentlyContinue oidc, oidc.exe\"" }
 
 [dependencies]
+# Cross-platform toolchain.
+go = ">=1.25"
+uv = ">=0.5"
 gradle = ">=9.3.1,<10"
 openjdk = "17.*"
+
+# Linux-only Fyne deps (X11 + GL + C/C++ toolchain).
+[target.linux-64.dependencies]
+gxx = ">=15.2.0,<15.3"
+pkg-config = ">=0.29.2,<0.30"
+xorg-libx11 = ">=1.8.13,<2"
+xorg-libxcursor = ">=1.2.3,<2"
+xorg-libxrandr = ">=1.5.5,<2"
+xorg-libxinerama = ">=1.1.6,<2"
+xorg-libxi = ">=1.8.2,<2"
+xorg-libxxf86vm = ">=1.1.7,<2"
+xorg-xorgproto = ">=2025.1,<2026"
+libdrm = ">=2.4.125,<3"
+libglvnd = ">=1.7.0,<2"
+libgl-devel = ">=1.7.0,<2"
+libglx-devel = ">=1.7.0,<2"
+
+# Windows-only Fyne deps: a C compiler that knows how to link GLFW + opengl32.
+[target.win-64.dependencies]
+m2w64-gcc = "*"

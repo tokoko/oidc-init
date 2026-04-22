@@ -1,64 +1,13 @@
-.PHONY: build test test-go test-python test-java test-integration test-all \
-        lint lint-go lint-python lint-java fmt fmt-go fmt-python \
-        setup teardown clean
+# All recipes live in pixi.toml; the Makefile just delegates so users with
+# either tool in their muscle memory can use the same target names.
 
-BINARY_NAME ?= oidc
-CGO_ENABLED ?= 0
-export CGO_ENABLED
+TARGETS := build build-gui build-windows gui run-windows \
+           test test-go test-python test-java test-integration \
+           lint lint-go lint-python lint-java \
+           fmt fmt-go fmt-python \
+           setup teardown clean
 
-# ── Build ──────────────────────────────────────────────────
-build:
-	go build -o $(BINARY_NAME) .
+.PHONY: $(TARGETS)
 
-# ── Test ───────────────────────────────────────────────────
-test: test-go test-python test-java
-
-test-go:
-	go test ./...
-
-test-python:
-	cd sdks/python && uv run pytest
-
-test-java:
-	cd sdks/java && ./gradlew test
-
-test-integration:
-	go test -v -tags integration ./...
-
-test-all: test test-integration
-
-# ── Lint ───────────────────────────────────────────────────
-lint: lint-go lint-python lint-java
-
-lint-go:
-	go vet ./...
-
-lint-python:
-	cd sdks/python && uv run ruff check .
-	cd sdks/python && uv run ty check oidc_init
-
-lint-java:
-	cd sdks/java && ./gradlew compileJava compileTestJava
-
-# ── Format ─────────────────────────────────────────────────
-fmt: fmt-go fmt-python
-
-fmt-go:
-	gofmt -w .
-
-fmt-python:
-	cd sdks/python && uv run black .
-
-# ── Keycloak ───────────────────────────────────────────────
-setup:
-	docker compose up -d
-	@echo "Waiting for Keycloak..."
-	@until curl -sf http://localhost:8080/realms/master > /dev/null 2>&1; do sleep 1; done
-	./scripts/setup_keycloak.sh
-
-teardown:
-	docker compose down
-
-# ── Clean ──────────────────────────────────────────────────
-clean:
-	rm -f $(BINARY_NAME)
+$(TARGETS):
+	@pixi run $@
