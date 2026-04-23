@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -303,5 +304,60 @@ func TestFilePermissions(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0600 {
 		t.Errorf("profiles.json permissions = %o, want 0600", perm)
+	}
+}
+
+func TestImport_AddsAndSkips(t *testing.T) {
+	setupTestHome(t)
+	mgr, _ := NewManager()
+	_ = mgr.Add("existing", sampleProfile(), false)
+
+	doc := `{
+		"new-one": {"endpoint":"a.example","realm":"r","client_id":"c","scope":"openid","protocol":"https","flow":"device","verify":true},
+		"existing": {"endpoint":"new.example","realm":"r","client_id":"c","scope":"openid","protocol":"https","flow":"device","verify":true},
+		"_default": "existing"
+	}`
+	res, err := mgr.Import(strings.NewReader(doc), false)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(res.Added) != 1 || res.Added[0] != "new-one" {
+		t.Errorf("Added = %v, want [new-one]", res.Added)
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0] != "existing" {
+		t.Errorf("Skipped = %v, want [existing]", res.Skipped)
+	}
+	// "existing" must keep its original endpoint since overwrite=false.
+	got, _ := mgr.Get("existing")
+	if got.Endpoint != "keycloak.example.com" {
+		t.Errorf("existing endpoint changed to %q, want unchanged", got.Endpoint)
+	}
+}
+
+func TestImport_Overwrite(t *testing.T) {
+	setupTestHome(t)
+	mgr, _ := NewManager()
+	_ = mgr.Add("p", sampleProfile(), false)
+
+	doc := `{"p": {"endpoint":"updated.example","realm":"r","client_id":"c","scope":"openid","protocol":"https","flow":"device","verify":true}}`
+	res, err := mgr.Import(strings.NewReader(doc), true)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(res.Added) != 1 {
+		t.Errorf("Added = %v, want [p]", res.Added)
+	}
+	got, _ := mgr.Get("p")
+	if got.Endpoint != "updated.example" {
+		t.Errorf("endpoint = %q, want updated.example", got.Endpoint)
+	}
+}
+
+func TestImport_InvalidJSON(t *testing.T) {
+	setupTestHome(t)
+	mgr, _ := NewManager()
+	_, err := mgr.Import(strings.NewReader("not json"), false)
+	if err == nil {
+		t.Fatal("expected error on invalid JSON")
 	}
 }
