@@ -3,15 +3,18 @@
 package gui
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"image/color"
+	"io"
 	"net/http"
 	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -87,6 +90,7 @@ func (u *ui) build() fyne.CanvasObject {
 	toolbar := widget.NewToolbar(
 		widget.NewToolbarSpacer(),
 		widget.NewToolbarAction(theme.ContentAddIcon(), func() { u.editProfile("", nil) }),
+		widget.NewToolbarAction(theme.DownloadIcon(), func() { u.importProfiles() }),
 		widget.NewToolbarAction(theme.ViewRefreshIcon(), func() { u.populate() }),
 		widget.NewToolbarAction(theme.DeleteIcon(), func() { u.confirmPurgeAll() }),
 	)
@@ -192,13 +196,17 @@ func (u *ui) profileCard(mgr *profiles.Manager, name string, isDefault bool) fyn
 	purgeBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
 		u.confirmPurge(key)
 	})
+	deleteBtn := widget.NewButtonWithIcon("", theme.WindowCloseIcon(), func() {
+		u.confirmDeleteProfile(name)
+	})
+	deleteBtn.Importance = widget.DangerImportance
 
 	if !storage.TokenExists(key) {
 		showBtn.Disable()
 		purgeBtn.Disable()
 	}
 
-	actions := container.NewHBox(authBtn, showBtn, editBtn, purgeBtn)
+	actions := container.NewHBox(authBtn, showBtn, editBtn, purgeBtn, deleteBtn)
 
 	row := container.NewBorder(nil, nil, pill, actions)
 	body := container.NewVBox(subtitleText, row)
@@ -469,6 +477,27 @@ func (u *ui) confirmPurge(key string) {
 	}, u.window)
 }
 
+func (u *ui) confirmDeleteProfile(name string) {
+	dialog.ShowConfirm("Delete profile",
+		"Delete profile "+name+"?\n\nThis removes the profile definition. Cached tokens are left in place and can be cleaned up separately.",
+		func(ok bool) {
+			if !ok {
+				return
+			}
+			mgr, err := profiles.NewManager()
+			if err != nil {
+				dialog.ShowError(err, u.window)
+				return
+			}
+			if err := mgr.Delete(name); err != nil {
+				dialog.ShowError(err, u.window)
+				return
+			}
+			u.status.SetText("Deleted profile " + name)
+			u.populate()
+		}, u.window)
+}
+
 func (u *ui) confirmPurgeAll() {
 	dialog.ShowConfirm("Purge all tokens", "Delete every stored token?", func(ok bool) {
 		if !ok {
@@ -481,6 +510,118 @@ func (u *ui) confirmPurgeAll() {
 		u.status.SetText("All tokens purged")
 		u.populate()
 	}, u.window)
+}
+
+// importProfiles opens a dialog to bulk-import profiles from a file or URL.
+func (u *ui) importProfiles() {
+	var fileBytes []byte
+	fileLabel := widget.NewLabel("(no file selected)")
+	fileLabel.Wrapping = fyne.TextWrapBreak
+
+	pickBtn := widget.NewButtonWithIcon("Browse...", theme.FolderOpenIcon(), func() {
+		dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil {
+				dialog.ShowError(err, u.window)
+				return
+			}
+			if reader == nil {
+				return
+			}
+			defer reader.Close()
+			data, rerr := io.ReadAll(reader)
+			if rerr != nil {
+				dialog.ShowError(rerr, u.window)
+				return
+			}
+			fileBytes = data
+			fileLabel.SetText(reader.URI().Name())
+		}, u.window)
+	})
+
+	urlEntry := widget.NewEntry()
+	urlEntry.SetPlaceHolder("https://example.com/profiles.json")
+	if mgr, err := profiles.NewManager(); err == nil {
+		if saved, _ := mgr.GetImportURL(); saved != "" {
+			urlEntry.SetText(saved)
+		}
+	}
+
+	overwriteCheck := widget.NewCheck("Overwrite profiles that already exist", nil)
+	overwriteCheck.SetChecked(true)
+
+	content := container.NewVBox(
+		widget.NewLabelWithStyle("From file", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewBorder(nil, nil, pickBtn, nil, fileLabel),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Or from URL", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		urlEntry,
+		widget.NewSeparator(),
+		overwriteCheck,
+	)
+
+	d := dialog.NewCustomConfirm("Import profiles", "Import", "Cancel",
+		container.NewPadded(content), func(ok bool) {
+			if !ok {
+				return
+			}
+			src, err := resolveImportSource(fileBytes, urlEntry.Text)
+			if err != nil {
+				dialog.ShowError(err, u.window)
+				return
+			}
+			mgr, err := profiles.NewManager()
+			if err != nil {
+				dialog.ShowError(err, u.window)
+				return
+			}
+			result, err := mgr.Import(src, overwriteCheck.Checked)
+			if err != nil {
+				dialog.ShowError(err, u.window)
+				return
+			}
+			// Persist the URL for next time (best-effort; ignore errors).
+			if u := strings.TrimSpace(urlEntry.Text); u != "" {
+				_ = mgr.SetImportURL(u)
+			}
+			msg := fmt.Sprintf("Imported %d, skipped %d, errors %d.",
+				len(result.Added), len(result.Skipped), len(result.Errors))
+			if len(result.Errors) > 0 {
+				for n, e := range result.Errors {
+					msg += fmt.Sprintf("\n  ✗ %s: %s", n, e)
+				}
+			}
+			dialog.ShowInformation("Import complete", msg, u.window)
+			u.status.SetText(fmt.Sprintf("✓ Imported %d profile(s)", len(result.Added)))
+			u.populate()
+		}, u.window)
+	d.Resize(fyne.NewSize(520, 360))
+	d.Show()
+}
+
+// resolveImportSource picks the in-memory file bytes if a file was chosen,
+// otherwise fetches the URL. Returns an error if neither is provided.
+func resolveImportSource(fileBytes []byte, urlText string) (io.Reader, error) {
+	if len(fileBytes) > 0 {
+		return bytes.NewReader(fileBytes), nil
+	}
+	urlText = strings.TrimSpace(urlText)
+	if urlText == "" {
+		return nil, fmt.Errorf("select a file or enter a URL")
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(urlText)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", urlText, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch %s: HTTP %d", urlText, resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return bytes.NewReader(data), nil
 }
 
 // editProfile opens a form to create (existing == nil) or edit a profile.

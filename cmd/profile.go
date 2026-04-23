@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tokoko/oidc-init/internal/profiles"
@@ -186,6 +190,78 @@ var profileSetDefaultCmd = &cobra.Command{
 	},
 }
 
+var profileImportCmd = &cobra.Command{
+	Use:   "import SOURCE",
+	Short: "Import profiles from a JSON file or URL",
+	Long: `Import one or more profiles from a JSON document.
+
+SOURCE may be a local file path or an http(s):// URL. The document is a JSON
+object mapping profile name to a Profile (same shape as ~/.oidc/profiles.json).
+Keys beginning with "_" are reserved metadata and are ignored.`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		source := args[0]
+		noOverwrite, _ := cmd.Flags().GetBool("no-overwrite")
+		overwrite := !noOverwrite
+
+		reader, err := openImportSource(source)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		defer reader.Close()
+
+		mgr, err := profiles.NewManager()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		result, err := mgr.Import(reader, overwrite)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		for _, n := range result.Added {
+			fmt.Printf("✓ %s\n", n)
+		}
+		for _, n := range result.Skipped {
+			fmt.Printf("- %s (already exists)\n", n)
+		}
+		for n, msg := range result.Errors {
+			fmt.Fprintf(os.Stderr, "✗ %s: %s\n", n, msg)
+		}
+		fmt.Printf("\nImported %d, skipped %d, errors %d.\n",
+			len(result.Added), len(result.Skipped), len(result.Errors))
+
+		if len(result.Errors) > 0 {
+			os.Exit(1)
+		}
+	},
+}
+
+// openImportSource returns a ReadCloser for either a local file or an http(s) URL.
+func openImportSource(source string) (io.ReadCloser, error) {
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Get(source)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch %s: %w", source, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("fetch %s returned HTTP %d", source, resp.StatusCode)
+		}
+		return resp.Body, nil
+	}
+	f, err := os.Open(source)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", source, err)
+	}
+	return f, nil
+}
+
 var profileUnsetDefaultCmd = &cobra.Command{
 	Use:   "unset-default",
 	Short: "Unset the default profile",
@@ -218,12 +294,15 @@ func init() {
 
 	profileDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation")
 
+	profileImportCmd.Flags().Bool("no-overwrite", false, "Skip profiles that already exist instead of replacing them")
+
 	profileCmd.AddCommand(profileAddCmd)
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileShowCmd)
 	profileCmd.AddCommand(profileDeleteCmd)
 	profileCmd.AddCommand(profileSetDefaultCmd)
 	profileCmd.AddCommand(profileUnsetDefaultCmd)
+	profileCmd.AddCommand(profileImportCmd)
 
 	rootCmd.AddCommand(profileCmd)
 }

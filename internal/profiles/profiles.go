@@ -3,6 +3,7 @@ package profiles
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,11 +11,12 @@ import (
 )
 
 const (
-	profileDir  = ".oidc"
-	profileFile = "profiles.json"
-	defaultKey  = "_default"
-	filePerms   = 0600
-	dirPerms    = 0700
+	profileDir    = ".oidc"
+	profileFile   = "profiles.json"
+	defaultKey    = "_default"
+	importURLKey  = "_import_url"
+	filePerms     = 0600
+	dirPerms      = 0700
 )
 
 // Profile holds the configuration for an OIDC provider.
@@ -186,6 +188,88 @@ func (m *Manager) UnsetDefault() error {
 	}
 	delete(raw, defaultKey)
 	return m.save(raw)
+}
+
+// GetImportURL returns the last URL the user imported profiles from, or "" if
+// none has been stored. Persisted as a reserved key in profiles.json.
+func (m *Manager) GetImportURL() (string, error) {
+	raw, err := m.load()
+	if err != nil {
+		return "", err
+	}
+	v, ok := raw[importURLKey]
+	if !ok {
+		return "", nil
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return "", fmt.Errorf("failed to parse import URL: %w", err)
+	}
+	return s, nil
+}
+
+// SetImportURL stores the URL for next time. An empty string clears it.
+func (m *Manager) SetImportURL(url string) error {
+	raw, err := m.load()
+	if err != nil {
+		return err
+	}
+	if url == "" {
+		delete(raw, importURLKey)
+	} else {
+		b, _ := json.Marshal(url)
+		raw[importURLKey] = b
+	}
+	return m.save(raw)
+}
+
+// ImportResult summarizes the outcome of an Import call.
+type ImportResult struct {
+	Added   []string          // profiles successfully added or replaced
+	Skipped []string          // profiles already present (when overwrite=false)
+	Errors  map[string]string // profile name -> error message
+}
+
+// Import reads a JSON document of {name -> Profile} from r and adds each
+// profile via Add. Keys starting with "_" are reserved metadata and are
+// silently ignored (so an exported profiles.json can be imported as-is).
+func (m *Manager) Import(r io.Reader, overwrite bool) (*ImportResult, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read import data: %w", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse import JSON: %w", err)
+	}
+
+	result := &ImportResult{Errors: make(map[string]string)}
+	names := make([]string, 0, len(raw))
+	for k := range raw {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		var p Profile
+		if err := json.Unmarshal(raw[name], &p); err != nil {
+			result.Errors[name] = fmt.Sprintf("invalid profile: %v", err)
+			continue
+		}
+		if !overwrite && m.Exists(name) {
+			result.Skipped = append(result.Skipped, name)
+			continue
+		}
+		if err := m.Add(name, &p, overwrite); err != nil {
+			result.Errors[name] = err.Error()
+			continue
+		}
+		result.Added = append(result.Added, name)
+	}
+	return result, nil
 }
 
 // GetDefault returns the name of the default profile, or empty string if none.
